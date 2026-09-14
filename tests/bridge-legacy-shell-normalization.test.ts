@@ -55,6 +55,23 @@ describe("bridge normalizes legacy shell names against the declared catalog (#24
     expect(sse).toContain("undeclared client tool");
   });
 
+  test("an explicitly authorized standalone web.run wire name passes without widening the guard", async () => {
+    const sse = await drain(bridgeToResponsesSSE(
+      toolTurn("web__run"), "qwen-x", undefined, undefined, undefined, undefined, 50_000,
+      { declaredToolNames: new Set(["exec", "web__run"]) },
+    ));
+    expect(sse).not.toContain("undeclared client tool");
+    expect(sse).toContain('"name":"web__run"');
+  });
+
+  test("standalone web.run still fails when it was not explicitly authorized", async () => {
+    const sse = await drain(bridgeToResponsesSSE(
+      toolTurn("web__run"), "qwen-x", undefined, undefined, undefined, undefined, 50_000,
+      { declaredToolNames: new Set(["exec"]) },
+    ));
+    expect(sse).toContain("undeclared client tool");
+  });
+
   test("apply_patch is wrapped through the declared exec tool", async () => {
     async function* patchTurn(): AsyncGenerator<AdapterEvent> {
       yield { type: "tool_call_start", id: "call-patch", name: "apply_patch" } as AdapterEvent;

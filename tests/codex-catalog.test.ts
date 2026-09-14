@@ -4571,7 +4571,7 @@ describe("Codex catalog routed normalization", () => {
     }
   });
 
-  test("opencode-go catalog sync appends official rows missing from /v1/models", () => {
+  test("opencode-go metadata augmentation no longer resurrects models missing from a live roster", () => {
     const models = augmentRoutedModelsWithMetadata(
       [{ provider: "opencode-go", id: "glm-5.2" }],
       ["opencode-go"],
@@ -4579,12 +4579,64 @@ describe("Codex catalog routed normalization", () => {
     const slugs = new Set(models.map(m => `${m.provider}/${m.id}`));
 
     expect(slugs.has("opencode-go/glm-5.2")).toBe(true);
-    expect(slugs.has("opencode-go/qwen3.5-plus")).toBe(true);
-    expect(slugs.has("opencode-go/qwen3.6-plus")).toBe(true);
-    // Issue #82: hy3-preview was dropped from the Zen Go lite list upstream; the
-    // generated bundle must not resurrect it as a selectable model.
+    expect(slugs.has("opencode-go/qwen3.5-plus")).toBe(false);
+    expect(slugs.has("opencode-go/qwen3.6-plus")).toBe(false);
     expect(slugs.has("opencode-go/hy3-preview")).toBe(false);
     expect(models.filter(m => `${m.provider}/${m.id}` === "opencode-go/glm-5.2")).toHaveLength(1);
+  });
+
+  test("opencode-go successful live discovery intersects the curated roster", async () => {
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      if (!String(input).includes("/models")) return new Response(null, { status: 404 });
+      return Response.json({
+        data: [
+          { id: "glm-5.3" },
+          { id: "qwen3.8-max" },
+          // Live gateway extra: not in OpenCode's tested/recommended Go endpoint table.
+          { id: "qwen3.5-plus" },
+        ],
+      });
+    }) as typeof fetch;
+    const outcomes: Array<{ provider: string; state: "authoritative" | "degraded" }> = [];
+    const models = await gatherRoutedModels({
+      providers: {
+        "opencode-go": {
+          adapter: "openai-chat",
+          baseUrl: "https://opencode.ai/zen/go/v1",
+          authMode: "key",
+          apiKey: "sk-test",
+          liveModels: true,
+        },
+      },
+    }, { providerModelOutcomes: outcomes });
+    const ids = models.filter(model => model.provider === "opencode-go").map(model => model.id);
+
+    expect(ids).toEqual(["glm-5.3", "qwen3.8-max"]);
+    expect(outcomes).toEqual([{ provider: "opencode-go", state: "authoritative" }]);
+  });
+
+  test("opencode-go degraded discovery falls back to the curated roster only", async () => {
+    globalThis.fetch = (async () => new Response("unavailable", { status: 503 })) as typeof fetch;
+    const outcomes: Array<{ provider: string; state: "authoritative" | "degraded" }> = [];
+    const models = await gatherRoutedModels({
+      providers: {
+        "opencode-go": {
+          adapter: "openai-chat",
+          baseUrl: "https://opencode.ai/zen/go/v1",
+          authMode: "key",
+          apiKey: "sk-test",
+          liveModels: true,
+        },
+      },
+    }, { providerModelOutcomes: outcomes });
+    const ids = models.filter(model => model.provider === "opencode-go").map(model => model.id);
+
+    expect(ids).toHaveLength(27);
+    expect(ids).toContain("grok-4.6");
+    expect(ids).toContain("qwen3.6-plus");
+    expect(ids).not.toContain("grok-4.5");
+    expect(ids).not.toContain("qwen3.5-plus");
+    expect(outcomes).toEqual([{ provider: "opencode-go", state: "degraded" }]);
   });
 
   test("opencode-go live rows inherit same-model reasoning ladders from registry metadata (#2410)", () => {
@@ -4602,9 +4654,9 @@ describe("Codex catalog routed normalization", () => {
       .toEqual(["low", "medium", "xhigh"]);
   });
 
-  test("opencode-go catalog sync appends jawcode rows with provider context-cap metadata", () => {
+  test("opencode-go live rows still receive provider context-cap metadata", () => {
     const models = augmentRoutedModelsWithMetadata(
-      [],
+      [{ provider: "opencode-go", id: "qwen3.6-plus", contextWindow: 1_000_000, inputModalities: ["text", "image"] }],
       ["opencode-go"],
       {
         "opencode-go": {
@@ -4615,7 +4667,16 @@ describe("Codex catalog routed normalization", () => {
       },
       { providerContextCaps: { "opencode-go": 350_000 } },
     );
-    const model = models.find(m => `${m.provider}/${m.id}` === "opencode-go/qwen3.6-plus");
+    const model = applyProviderConfigHints(
+      "opencode-go",
+      {
+        adapter: "openai-chat",
+        baseUrl: "https://opencode.ai/zen/go/v1",
+        modelContextWindows: { "qwen3.6-plus": 1_000_000 },
+      } as never,
+      models.find(m => `${m.provider}/${m.id}` === "opencode-go/qwen3.6-plus")!,
+      350_000,
+    );
 
     expect(model).toMatchObject({
       contextWindow: 350_000,
@@ -4924,7 +4985,6 @@ describe("Codex catalog routed normalization", () => {
       { slug: "opencode-go/deepseek-v4-pro", efforts: ["low", "high", "max", "ultra"] },
       { slug: "opencode-go/glm-5.2", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
       { slug: "opencode-go/glm-5.1", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
-      { slug: "opencode-go/glm-5", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
       { slug: "zai/glm-5.2", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
       { slug: "zai/glm-5.2[1m]", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
       { slug: "zhipu-bigmodel/glm-4.6", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
@@ -4948,7 +5008,7 @@ describe("Codex catalog routed normalization", () => {
           authMode: "key",
           apiKey: "sk-test",
           liveModels: false,
-          models: ["deepseek-v4-flash", "deepseek-v4-pro", "glm-5.2", "glm-5.1", "glm-5"],
+          models: ["deepseek-v4-flash", "deepseek-v4-pro", "glm-5.2", "glm-5.1"],
         },
         zai: {
           adapter: "openai-chat",

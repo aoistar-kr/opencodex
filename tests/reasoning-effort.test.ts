@@ -857,10 +857,10 @@ describe("Qwen reasoning wire contracts", () => {
     expect(request.reasoningLog?.wireField).toBe("reasoning_effort");
   });
 
-  test("opencode-go Qwen models are no longer pinned to the Anthropic wire", () => {
+  test("opencode-go curated Qwen and MiniMax models stay pinned to the Anthropic wire", () => {
     const provider: OcxProviderConfig = { adapter: "openai-chat", baseUrl: "https://opencode.ai/zen/go/v1" };
 
-    expect(resolveWireProtocolOverride("opencode-go", "qwen3.7-max", provider).adapter).toBe("openai-chat");
+    expect(resolveWireProtocolOverride("opencode-go", "qwen3.7-max", provider).adapter).toBe("anthropic");
     expect(resolveWireProtocolOverride("opencode-go", "minimax-m3", provider).adapter).toBe("anthropic");
   });
 

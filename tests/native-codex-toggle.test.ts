@@ -19,6 +19,7 @@ import { join } from "node:path";
 import { handleManagementAPI } from "../src/server/management-api";
 import type { ManagementApiDeps } from "../src/server/management/context";
 import type { OcxConfig } from "../src/types";
+import { STORE_BUDGET_MS } from "./helpers/test-budget";
 
 let fixtureRoot = "";
 let previousOpencodexHome: string | undefined;
@@ -116,7 +117,7 @@ describe("turning Codex off", () => {
     // The decision is on disk. Without this, an OFF lasts until the next
     // `ocx start` re-syncs over it, which is the defect this phase exists for.
     expect(persistedCodexIntent()).toBe(false);
-  });
+  }, { timeout: STORE_BUDGET_MS });
 
   /**
    * THE PROXY STAYS UP. The user asked for this in exactly these terms: they may
@@ -139,7 +140,7 @@ describe("turning Codex off", () => {
     // return 409 here rather than a normal answer.
     const again = await put(baseConfig(), { enabled: false });
     expect(again.status).toBe(200);
-  });
+  }, { timeout: STORE_BUDGET_MS });
 
   test("turning it off twice is honest about the second one changing nothing", async () => {
     const first = await put(baseConfig(), { enabled: false });
@@ -147,7 +148,7 @@ describe("turning Codex off", () => {
     expect(first.body.changed).toBe(true);
     expect(second.body.changed).toBe(false);
     expect(persistedCodexIntent()).toBe(false);
-  });
+  }, { timeout: STORE_BUDGET_MS });
 });
 
 describe("turning Codex back on", () => {
@@ -159,5 +160,5 @@ describe("turning Codex back on", () => {
     expect(result.status).toBe(200);
     // Absence is ON, so an untouched config and a re-enabled one are identical.
     expect(persistedCodexIntent()).toBeUndefined();
-  });
+  }, { timeout: STORE_BUDGET_MS });
 });

@@ -197,10 +197,16 @@ async function effectiveRuntime(override: string): Promise<string> {
   let primaryError: unknown;
   try {
     port = await freePort();
+    const env = isolatedLauncherEnv(root, override);
+    writeFileSync(
+      join(env.OPENCODEX_HOME!, "config.json"),
+      JSON.stringify({ port, hostname: "127.0.0.1" }),
+      "utf8",
+    );
     launcher = spawn("node", [BIN_OCX, "start", "--port", String(port)], {
       stdio: "ignore",
       windowsHide: true,
-      env: isolatedLauncherEnv(root, override),
+      env,
     });
     if (!launcher.pid) throw new Error("Node launcher has no process id");
     launcherPid = launcher.pid;

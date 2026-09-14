@@ -8,6 +8,7 @@ import {
   probeWindowsPowerShellFixture,
   type WindowsPowerShellFixture,
 } from "./helpers/windows-power-shell-fixture";
+import { SPAWN_BUDGET_MS } from "./helpers/test-budget";
 import {
   afterCatalogWriteHandleAppServers,
   attachStaleAppServerHint,
@@ -1023,7 +1024,7 @@ describe("warnIfStaleCodexAppServersAfterStartupWrite (#1046)", () => {
     } finally {
       Date.now = realDateNow;
     }
-  });
+  }, { timeout: SPAWN_BUDGET_MS });
 
   /*
    * An `unknown` reading is a failure to observe, not an observation. Serving it for

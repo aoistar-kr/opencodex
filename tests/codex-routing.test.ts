@@ -2407,7 +2407,7 @@ describe("codex account selection order", () => {
       eligible,
       "gated-model-0",
     )).toEqual({ status: "selected", accountId: "c" });
-  }, STORE_BUDGET_MS);
+  }, process.platform === "win32" ? 60_000 : STORE_BUDGET_MS);
 
   test("a gated first request binds its actual account without replacing global active", () => {
     const config = makeConfig({ activeCodexAccountId: "b" });

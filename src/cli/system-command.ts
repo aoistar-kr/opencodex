@@ -48,7 +48,10 @@ async function settings(argv: string[], deps: RuntimeApiDeps): Promise<void> {
     printData(result, wantsJson, summaryLines(result));
     return;
   }
-  const body = { ...(autoStart !== undefined ? { codexAutoStart: autoStart } : {}), ...(streamMode !== undefined ? { streamMode } : {}) };
+  const body = {
+    ...(autoStart !== undefined ? { codexAutoStart: autoStart } : {}),
+    ...(streamMode !== undefined ? { streamMode } : {}),
+  };
   const result = await runtimeRequest("/api/settings", { method: "PUT", body: JSON.stringify(body) }, deps);
   printData(result, wantsJson, ["System settings updated."]);
 }

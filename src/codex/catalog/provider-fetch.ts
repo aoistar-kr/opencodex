@@ -44,6 +44,7 @@ import { parseAntigravityAvailableModels, registerAntigravityDiscoveredWireModel
 import { applyProviderContextCap, providerContextCap, resolveUnknownRoutedContextWindow } from "../../providers/context-cap";
 import { clampAutoCompactTokenLimit } from "../../providers/auto-compact-budget";
 import { effectiveModelAliases } from "../../providers/default-aliases";
+import { OPENCODE_GO_CURATED_MODELS, isCuratedOpenCodeGoModel } from "../../providers/opencode-go";
 import { routedSlug, slugEquals, slugEquivalenceKey, slugsEquivalent } from "../../providers/slug-codec";
 import { CODEX_GPT5_IDENTITY_LINE } from "../../adapters/identity";
 import { filterCursorConfiguredModelsByLiveDiscovery } from "../../adapters/cursor/discovery";
@@ -80,7 +81,7 @@ import { createAdmissionGate, ResourceAdmissionError, type AdmissionMetrics } fr
 
 import { CODEX_CUSTOM_MODEL_CATALOG_KIND, JAWCODE_CATALOG_AUGMENT_PROVIDERS, catalogModelSlug, shouldExposeRoutedModel } from "./parsing";
 import type { CatalogModel } from "./parsing";
-import { disabledNativeSlugs, hasComboTargets, isNativeOpenAiCapabilityAliasModel, NATIVE_GPT56_MAX_INPUT_TOKENS, nativeContextLimits, nativeDefaultReasoningEffort, nativeInputModalities, nativeOpenAiAutoCompactTokenLimit, nativeOpenAiContextWindow, nativeOpenAiMaxInputTokens, nativeOpenAiSlugs, nativeParallelToolCalls, nativeReasoningEfforts } from "./metadata";
+import { disabledNativeSlugs, hasComboTargets, hasNativeOpenAiCapabilityMetadata, NATIVE_GPT56_MAX_INPUT_TOKENS, nativeContextLimits, nativeOpenAiCapabilityDisplayName, nativeDefaultReasoningEffort, nativeInputModalities, nativeOpenAiAutoCompactTokenLimit, nativeOpenAiContextWindow, nativeOpenAiMaxInputTokens, nativeOpenAiSlugs, nativeParallelToolCalls, nativeReasoningEfforts } from "./metadata";
 import { deriveComboCatalogModel, normalizedOpenAiApiSignature, openAiApiCollisionWarnings, replaceLastComboCatalogOmissions, warnUncataloguedComboOnce } from "./aggregation";
 import type { ComboCatalogOmission } from "./aggregation";
 import type { CatalogGatherProviderAuthEvidence } from "./filesystem-evidence";
@@ -1687,6 +1688,7 @@ export async function fetchProviderModels(
 }
 
 export function shouldExposeProviderModel(providerName: string, modelId: string): boolean {
+  if (providerName === "opencode-go") return isCuratedOpenCodeGoModel(modelId);
   if (providerName === "opencode-free") return modelId === "big-pickle" || modelId.endsWith("-free");
   // xAI /models advertises both the dated deployment and this floating alias.
   // Keep only grok-4.20-multi-agent-0309; the alias is the same server-side id.
@@ -1917,11 +1919,36 @@ async function gatherRoutedModelsUncached(
     )),
   );
   const lists = providerResults.map(result => result.models);
-  const apiAugmented = augmentRoutedModelsWithCapturedOpenAiApiRows(
+  let apiAugmented = augmentRoutedModelsWithCapturedOpenAiApiRows(
     lists.flat(),
     config,
     capture.openAiApiPolicy,
   );
+  // OpenCode Go publishes a curated/tested roster separately from its broader live `/models`
+  // gateway list. A successful live discovery is authoritative and already got filtered to that
+  // curated set by shouldExposeProviderModel. When discovery degrades, however, there is no fresh
+  // availability authority, so fail soft to the curated roster instead of either exposing nothing
+  // or resurrecting arbitrary Jawcode/live extras. Explicit `liveModels:false` is authoritative and
+  // therefore never enters this fallback.
+  const openCodeGoResult = providerResults.find(result => result.outcome.provider === "opencode-go");
+  const openCodeGoProvider = activeProviders.find(provider => provider.name === "opencode-go");
+  if (openCodeGoResult?.outcome.state === "degraded" && openCodeGoProvider) {
+    const existing = new Set(
+      apiAugmented
+        .filter(model => model.provider === "opencode-go")
+        .map(model => model.id),
+    );
+    const contextCap = providerContextCap(config, "opencode-go");
+    for (const id of OPENCODE_GO_CURATED_MODELS) {
+      if (existing.has(id)) continue;
+      apiAugmented.push(applyProviderConfigHints(
+        "opencode-go",
+        openCodeGoProvider.provider,
+        { provider: "opencode-go", id },
+        contextCap,
+      ));
+    }
+  }
   const all = augmentRoutedModelsWithMetadata(apiAugmented, activeProviders.map(provider => provider.name), config.providers, config)
     // Drop image/video generation models (e.g. Grok image/video) by default. Cursor's static catalog
     // intentionally mirrors Cursor's public model table, including Gemini image preview, so the
@@ -2054,7 +2081,7 @@ async function gatherRoutedModelsUncached(
     const codexForwardNativeCapabilityAlias = cm.provider === OPENAI_CODEX_PROVIDER_ID
       && providerForCanonicalCheck !== undefined
       && isCanonicalOpenAiForwardProvider(providerForCanonicalCheck)
-      && isNativeOpenAiCapabilityAliasModel(cm.modelId);
+      && hasNativeOpenAiCapabilityMetadata(cm.modelId);
     const customNativeLimits = {
       ...nativeContextLimits(config),
       ...(typeof cm.contextWindow === "number" && cm.contextWindow > 0
@@ -2106,7 +2133,9 @@ async function gatherRoutedModelsUncached(
       // Display-only label: never feeds routing (customModels are keyed by routedSlug below).
       ...(cm.displayName
         ? { displayName: cm.displayName }
-        : codexForwardNativeCapabilityAlias ? { displayName: "Daybreak Blue" } : {}),
+        : codexForwardNativeCapabilityAlias
+          ? { displayName: nativeOpenAiCapabilityDisplayName(cm.modelId) ?? cm.modelId }
+          : {}),
       ...(customContextWindow !== undefined ? { contextWindow: customContextWindow } : {}),
       ...(customMaxInputTokens !== undefined ? { maxInputTokens: customMaxInputTokens } : {}),
       ...(customAutoCompactTokenLimit !== undefined ? { autoCompactTokenLimit: customAutoCompactTokenLimit } : {}),

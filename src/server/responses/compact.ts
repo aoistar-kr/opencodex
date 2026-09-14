@@ -6,7 +6,10 @@ import {
   resolveEnvValue,
 } from "../../config";
 import { parseRequest } from "../../responses/parser";
-import { buildCompactV1Output, COMPACT_PROMPT, decodeCompactionSummary, extractCompactUserMessages } from "../../responses/compaction";
+import { buildCompactV1Output, COMPACT_PROMPT, compactionOriginFingerprint, decodeCompactionSummary, encodeHybridCompaction, extractCompactUserMessages } from "../../responses/compaction";
+import { durableReplayCredentialIdentity, durableReplayDestinationIdentity } from "../../responses/reasoning-replay-cache";
+import { thoughtSignatureReplaySalt } from "../../responses/thought-signature-replay";
+import { openaiResponsesUrl } from "../../adapters/openai-responses-url";
 import { FORWARD_HEADERS, sanitizeReasoningInputContent } from "../../adapters/openai-responses";
 import { expandPreviousResponseInput, previousResponseProviderState, rememberResponseState } from "../../responses/state";
 import { NoEligiblePolicyCandidateError, routeModel } from "../../router";
@@ -474,6 +477,285 @@ export async function bufferCompactResponse(upstream: Response, signal: AbortSig
   return new Response(body, { status: upstream.status, statusText: upstream.statusText, headers });
 }
 
+type CompletedResponsesSnapshot = { id?: unknown; output?: unknown; status?: unknown; error?: unknown };
+
+function assistantOutputText(snapshot: CompletedResponsesSnapshot): string | null {
+  if (!Array.isArray(snapshot.output)) return null;
+  const chunks: string[] = [];
+  for (const item of snapshot.output) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const message = item as { type?: unknown; role?: unknown; content?: unknown };
+    if (message.type !== "message" || message.role !== "assistant" || !Array.isArray(message.content)) continue;
+    for (const part of message.content) {
+      if (!part || typeof part !== "object" || Array.isArray(part)) continue;
+      const content = part as { type?: unknown; text?: unknown };
+      if ((content.type === "output_text" || content.type === "text") && typeof content.text === "string") {
+        chunks.push(content.text);
+      }
+    }
+  }
+  const text = chunks.join("").trim();
+  return text.length > 0 ? text : null;
+}
+
+function nativeCompactionItemFromSnapshot(snapshot: unknown): Record<string, unknown> | null {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) return null;
+  const output = (snapshot as { output?: unknown }).output;
+  if (!Array.isArray(output)) return null;
+  const items = output.filter((item): item is Record<string, unknown> => (
+    !!item
+    && typeof item === "object"
+    && !Array.isArray(item)
+    && (item as { type?: unknown }).type === "compaction"
+    && typeof (item as { encrypted_content?: unknown }).encrypted_content === "string"
+  ));
+  if (items.length !== 1) return null;
+  const encrypted = items[0]!.encrypted_content as string;
+  // `ocx1`/`ocx2` already carry portable text. Only a backend-owned opaque item needs a shadow.
+  return decodeCompactionSummary(encrypted) === null ? items[0]! : null;
+}
+
+function nativeCompactionOrigin(args: {
+  providerName: string;
+  provider: OcxProviderConfig;
+  modelId: string;
+  authCtx: CodexAuthContext;
+}): string | null {
+  const salt = thoughtSignatureReplaySalt();
+  let durableAuth: string | undefined;
+  if (args.provider.authMode === "forward") {
+    const pool = args.authCtx.kind === "pool" || args.authCtx.kind === "main-pool"
+      ? args.authCtx
+      : undefined;
+    const stableAccount = pool?.accountId ?? pool?.chatgptAccountId;
+    durableAuth = durableReplayCredentialIdentity("codex", stableAccount ?? undefined, args.provider.headers, salt);
+  } else if (args.provider.authMode !== "local") {
+    const configuredValue = typeof args.provider.apiKey === "string" && args.provider.apiKey.trim().length > 0
+      ? args.provider.apiKey
+      : undefined;
+    durableAuth = durableReplayCredentialIdentity("key", configuredValue, args.provider.headers, salt);
+  }
+  return compactionOriginFingerprint([
+    args.providerName,
+    durableReplayDestinationIdentity(args.provider.baseUrl),
+    durableAuth,
+    args.provider.adapter,
+    args.modelId,
+  ]);
+}
+
+async function completedSnapshotFromInternalResponse(
+  response: Response,
+  signal: AbortSignal,
+): Promise<CompletedResponsesSnapshot | null> {
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
+    return null;
+  }
+  if (response.headers.get("content-type")?.includes("text/event-stream")) {
+    if (!response.body) return null;
+    const terminal = { status: "incomplete" as ResponsesTerminalStatus };
+    let completed: CompletedResponsesSnapshot | undefined;
+    await new Promise<void>(resolve => {
+      consumeForInspection(
+        response.body!,
+        status => { terminal.status = status; },
+        signal,
+        resolve,
+        undefined,
+        undefined,
+        value => { completed = value; },
+      );
+    });
+    return !signal.aborted && terminal.status === "completed" && completed ? completed : null;
+  }
+  try {
+    const json = await response.json() as CompletedResponsesSnapshot;
+    return json.status === undefined || json.status === "completed" ? json : null;
+  } catch {
+    return null;
+  }
+}
+
+interface NativeShadowTransport {
+  providerName: string;
+  provider: OcxProviderConfig;
+  headers: Headers;
+  model: string;
+  connectMs: number;
+}
+
+function responsesUrlForNativeShadow(provider: OcxProviderConfig): string {
+  if (provider.authMode === "forward") {
+    const base = isCanonicalOpenAiForwardProvider(provider)
+      ? CODEX_FORWARD_BASE_URL
+      : provider.baseUrl.replace(/\/+$/, "");
+    return `${base}/responses`;
+  }
+  if (provider.responsesPath === undefined) return openaiResponsesUrl(provider.baseUrl);
+  return `${provider.baseUrl.replace(/\/$/, "")}${provider.responsesPath}`;
+}
+
+async function renderPortableNativeCompactionSummaryDirect(args: {
+  req: Request;
+  transport: NativeShadowTransport;
+  compactionItem: Record<string, unknown>;
+}): Promise<string | null> {
+  if (args.req.signal.aborted) return null;
+  const stateItem = { ...args.compactionItem };
+  delete stateItem.id;
+  const body = {
+    model: args.transport.model,
+    stream: true,
+    store: false,
+    tools: [],
+    input: [
+      stateItem,
+      {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: COMPACT_PROMPT }],
+      },
+    ],
+  };
+  try {
+    const response = await fetchWithHeaderTimeout(
+      responsesUrlForNativeShadow(args.transport.provider),
+      {
+        method: "POST",
+        headers: args.transport.headers,
+        body: JSON.stringify(body),
+      },
+      args.req.signal,
+      args.transport.connectMs,
+      false,
+      providerFetch(args.transport.provider, undefined, {
+        providerName: args.transport.providerName,
+        modelId: args.transport.model,
+      }),
+      args.transport.provider.authMode === "forward",
+    );
+    const completed = await completedSnapshotFromInternalResponse(response, args.req.signal);
+    return completed ? assistantOutputText(completed) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Ask the backend that minted a native compact blob to render a provider-neutral plaintext copy.
+ * The request deliberately contains only the compact state + checkpoint prompt: it does not replay
+ * the full pre-compaction transcript, and it has no tools or server-side storage.  Any failure is
+ * best-effort only; callers keep the original successful native compact response.
+ */
+async function renderPortableNativeCompactionSummary(args: {
+  req: Request;
+  config: OcxConfig;
+  model: string;
+  compactionItem: Record<string, unknown>;
+  turnAdmissionLease?: AdmissionLease;
+  admission?: DataPlaneAdmission;
+}): Promise<string | null> {
+  if (args.req.signal.aborted) return null;
+  const headers = new Headers({ "content-type": "application/json" });
+  for (const name of FORWARD_HEADERS) {
+    const value = args.req.headers.get(name);
+    if (value) headers.set(name, value);
+  }
+  const body = {
+    model: args.model,
+    stream: true,
+    store: false,
+    tools: [],
+    input: [
+      args.compactionItem,
+      {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: COMPACT_PROMPT }],
+      },
+    ],
+  };
+  const internalReq = new Request("http://localhost/v1/responses", {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+    signal: args.req.signal,
+  });
+  const shadowLogCtx: RequestLogContext = { model: "", provider: "" };
+  try {
+    const response = await handleResponses(internalReq, args.config, shadowLogCtx, {
+      abortSignal: args.req.signal,
+      turnAdmissionLease: args.turnAdmissionLease,
+      ...(args.admission ? { admission: args.admission } : {}),
+    });
+    const completed = await completedSnapshotFromInternalResponse(response, args.req.signal);
+    return completed ? assistantOutputText(completed) : null;
+  } catch {
+    return null;
+  }
+}
+
+function wrapCompactionItemWithPortableSummary(
+  item: Record<string, unknown>,
+  summary: string,
+  origin?: string | null,
+): Record<string, unknown> | null {
+  const native = typeof item.encrypted_content === "string" ? item.encrypted_content : "";
+  if (native.length === 0 || summary.trim().length === 0 || decodeCompactionSummary(native) !== null) return null;
+  try {
+    return { ...item, encrypted_content: encodeHybridCompaction(native, summary, origin) };
+  } catch {
+    return null;
+  }
+}
+
+async function maybeAddPortableShadowToBufferedCompact(args: {
+  buffered: Response;
+  req: Request;
+  config: OcxConfig;
+  model: string;
+  origin?: string | null;
+  transport?: NativeShadowTransport;
+  turnAdmissionLease?: AdmissionLease;
+  admission?: DataPlaneAdmission;
+}): Promise<Response> {
+  if (!args.buffered.ok || args.req.signal.aborted) return args.buffered;
+  let snapshot: CompletedResponsesSnapshot;
+  try {
+    snapshot = await args.buffered.clone().json() as CompletedResponsesSnapshot;
+  } catch {
+    return args.buffered;
+  }
+  const nativeItem = nativeCompactionItemFromSnapshot(snapshot);
+  if (!nativeItem) return args.buffered;
+  const summary = args.transport
+    ? await renderPortableNativeCompactionSummaryDirect({
+        req: args.req,
+        transport: args.transport,
+        compactionItem: nativeItem,
+      })
+    : await renderPortableNativeCompactionSummary({
+        req: args.req,
+        config: args.config,
+        model: args.model,
+        compactionItem: nativeItem,
+        turnAdmissionLease: args.turnAdmissionLease,
+        admission: args.admission,
+      });
+  if (!summary || !Array.isArray(snapshot.output)) return args.buffered;
+  const wrapped = wrapCompactionItemWithPortableSummary(nativeItem, summary, args.origin);
+  if (!wrapped) return args.buffered;
+  const output = snapshot.output.map(item => item === nativeItem ? wrapped : item);
+  const headers = new Headers(args.buffered.headers);
+  headers.delete("content-length");
+  return new Response(JSON.stringify({ ...snapshot, output }), {
+    status: args.buffered.status,
+    statusText: args.buffered.statusText,
+    headers,
+  });
+}
+
 
 
 export async function handleResponsesCompact(
@@ -894,9 +1176,11 @@ export async function handleResponsesCompact(
         });
         await upstream.body?.cancel().catch(() => undefined);
         outcomeCtx = alternate.authCtx;
+        compactProvider = alternate.provider;
+        headers = alternate.headers;
         logCtx.accountLogLabel = codexAuthContextLogLabel(alternate.authCtx, config);
         try {
-          upstream = await sendCompactAttempt(alternate.provider, alternate.headers, "single");
+          upstream = await sendCompactAttempt(compactProvider, headers, "single");
         } catch (err) {
           if (req.signal.aborted) {
             recordCompactPoolOutcome(outcomeCtx, 499);
@@ -954,6 +1238,27 @@ export async function handleResponsesCompact(
     if (buffered.ok) {
       inspectResponseLogJson(logCtx, await buffered.clone().text());
       forgetCompactHandoffRoute(req);
+      return await maybeAddPortableShadowToBufferedCompact({
+        buffered,
+        req,
+        config,
+        model: raw.model,
+        origin: nativeCompactionOrigin({
+          providerName: route.providerName,
+          provider: compactProvider,
+          modelId: route.modelId,
+          authCtx: outcomeCtx,
+        }),
+        transport: {
+          providerName: route.providerName,
+          provider: compactProvider,
+          headers,
+          model: route.modelId,
+          connectMs,
+        },
+        turnAdmissionLease,
+        admission,
+      });
     } else if (quotaFailure && !storedPool401ReplayAttempted) {
       const fallbackModel = compactHandoffRoute(req, raw.model);
       if (fallbackModel && !req.signal.aborted) {
@@ -1076,7 +1381,14 @@ export async function handleResponsesCompact(
       headers: { "Content-Type": "application/json" },
     });
     rememberCompactHandoffRoute(req, raw.model);
-    return result;
+    return await maybeAddPortableShadowToBufferedCompact({
+      buffered: result,
+      req,
+      config,
+      model: raw.model,
+      turnAdmissionLease,
+      admission,
+    });
   }
   const encrypted = compactionItems[0]!.encrypted_content;
   const decoded = typeof encrypted === "string" ? decodeCompactionSummary(encrypted) : null;

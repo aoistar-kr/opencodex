@@ -10,6 +10,7 @@ import {
 import {
   clearResponseStateForTests,
   clearResponseStateMemoryForTests,
+  flushPendingResponseSpillsForTests,
   rememberResponseState,
   responseStateMetrics,
   setResponseStateByteCapForTests,
@@ -254,6 +255,7 @@ describe("Issue #702 expired forward replay state", () => {
       undefined,
       { force: true },
     );
+    await flushPendingResponseSpillsForTests();
     const spillDir = responseSpillDirectory(testHome);
     const spill = readdirSync(spillDir).find(name => name.endsWith(".spill.json"));
     expect(spill).toBeDefined();

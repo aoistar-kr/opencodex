@@ -32,6 +32,15 @@ const STARTUP_FILE_WAIT_MS = watchdogMs(10_000);
  */
 const STARTUP_CHILD_BUDGET_MS = Math.max(30_000, STARTUP_FILE_WAIT_MS * 3);
 
+/**
+ * The crash-boundary case walks five real crash + restart scenarios in one test.
+ * On a loaded Windows CI shard the unchanged assertions reached 91.6s against the
+ * old 90s ceiling, while the same current tree completed in 44.2s on the prior run.
+ * Keep non-Windows/local behavior unchanged and give only Windows CI bounded headroom.
+ */
+const CRASH_BOUNDARY_SUITE_BUDGET_MS =
+  process.env.CI === "true" && process.platform === "win32" ? 180_000 : 90_000;
+
 const roots: string[] = [];
 const oldOcx = process.env.OPENCODEX_HOME;
 const oldCodex = process.env.CODEX_HOME;
@@ -274,7 +283,7 @@ describe("native profile OpenCodex process-exit phases", () => {
         await stopStartup(restart, p);
       }
     }
-  }, 90_000);
+  }, CRASH_BOUNDARY_SUITE_BUDGET_MS);
 
   test("two concurrent real switches serialize to one commit without credential overlap", async () => {
     const f = await fixture();

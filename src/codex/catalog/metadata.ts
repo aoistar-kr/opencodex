@@ -41,10 +41,14 @@ import { CODEX_NATIVE_ALIAS_CATALOG_KIND } from "./kinds";
 import {
   ACCOUNT_GATED_NATIVE_OPENAI_MODELS,
   NATIVE_DAYBREAK_BLUE_MODEL,
+  NATIVE_GPT6_ASTRA_MODEL,
   NATIVE_OPENAI_CAPABILITY_ALIAS_MODELS,
   NATIVE_OPENAI_MODELS,
+  SELF_DESCRIBED_NATIVE_OPENAI_MODELS,
   SUPPORTED_NATIVE_OPENAI_SLUGS,
+  hasNativeOpenAiCapabilityMetadata,
   isNativeOpenAiCapabilityAliasModel,
+  nativeOpenAiAliasPresentation,
   nativeOpenAiCapabilitySourceSlug,
 } from "./native-models";
 import { cachedAvailableAccountGatedNativeModels } from "../model-entitlements";
@@ -52,16 +56,21 @@ import { MAIN_CODEX_ACCOUNT_ID } from "../main-account";
 export { CODEX_NATIVE_ALIAS_CATALOG_KIND } from "./kinds";
 export {
   NATIVE_DAYBREAK_BLUE_MODEL,
+  NATIVE_GPT6_ASTRA_MODEL,
   NATIVE_OPENAI_CAPABILITY_ALIAS_MODELS,
   NATIVE_OPENAI_MODELS,
+  SELF_DESCRIBED_NATIVE_OPENAI_MODELS,
   SUPPORTED_NATIVE_OPENAI_SLUGS,
+  hasNativeOpenAiCapabilityMetadata,
   isNativeOpenAiCapabilityAliasModel,
+  nativeOpenAiAliasPresentation,
   nativeOpenAiCapabilitySourceSlug,
 } from "./native-models";
 
 export const DOCUMENTED_NATIVE_OPENAI_ADDITIONS = [
   "gpt-5.3-codex-spark",
   "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
+  NATIVE_GPT6_ASTRA_MODEL,
 ];
 
 export function configuredNativeAliasSlugs(
@@ -161,6 +170,8 @@ export const NATIVE_OPENAI_CONTEXT_OVERRIDES: Record<string, { contextWindow?: n
   // ChatGPT account."`), so the promotion rests on a report from an account that has
   // access rather than on a probe. Treat it as the weaker evidence of the four.
   [NATIVE_DAYBREAK_BLUE_MODEL]: { contextWindow: NATIVE_GPT56_CONTEXT_WINDOW, maxContextWindow: NATIVE_GPT56_MAX_INPUT_TOKENS, maxInputTokens: NATIVE_GPT56_MAX_INPUT_TOKENS },
+  // Shipped Astra row: 272k default window with an 872k long-window ceiling.
+  [NATIVE_GPT6_ASTRA_MODEL]: { contextWindow: 272_000, maxContextWindow: 872_000, maxInputTokens: 872_000 },
 };
 
 const PINNED_UPSTREAM_MODELS: Map<string, RawEntry> = new Map(
@@ -245,14 +256,24 @@ export function nativeContextLimits(
   };
 }
 
+function longWindowOptInCeiling(slug: string): number | undefined {
+  if (NATIVE_GPT56_FAMILY.has(slug)) return NATIVE_GPT56_MAX_INPUT_TOKENS;
+  const override = NATIVE_OPENAI_CONTEXT_OVERRIDES[slug];
+  const defaultWindow = positiveInt(override?.contextWindow);
+  const longWindow = positiveInt(override?.maxContextWindow);
+  if (defaultWindow === undefined || longWindow === undefined || longWindow <= defaultWindow) return undefined;
+  return longWindow;
+}
+
 /** Apply the user levers to an authoritative value. */
 function narrowToLimits(raw: number | undefined, slug: string, input: NativeContextLimitsInput): number | undefined {
   if (raw === undefined) return undefined;
   const limits = asLimits(input);
   const overlay = positiveInt(limits.modelWindows?.[slug]) ?? positiveInt(limits.providerWindow);
   const cap = positiveInt(limits.cap);
-  if (NATIVE_GPT56_FAMILY.has(slug)) {
-    const ceiling = NATIVE_GPT56_MAX_INPUT_TOKENS;
+  const optInCeiling = longWindowOptInCeiling(slug);
+  if (optInCeiling !== undefined) {
+    const ceiling = optInCeiling;
     const chosen = overlay ?? cap ?? raw;
     const window = Math.min(chosen, ceiling);
     return overlay !== undefined && cap !== undefined ? Math.min(window, cap) : window;
@@ -269,6 +290,29 @@ export function nativeOpenAiContextWindow(slug: string, limits?: NativeContextLi
       ? PINNED_NATIVE_CAPABILITY_ENTRIES.get(slug)!.context_window as number
       : undefined);
   return narrowToLimits(raw, slug, limits);
+}
+
+export function nativeOpenAiMaxOutputTokens(slug: string): number | undefined {
+  const sourceSlug = nativeOpenAiCapabilitySourceSlug(slug);
+  return positiveInt(getModelMetadata("openai", sourceSlug)?.maxTokens);
+}
+
+export function nativeOpenAiContextTier(
+  slug: string,
+  limits?: NativeContextLimitsInput,
+): { defaultWindow: number; longWindow: number } | undefined {
+  const override = NATIVE_OPENAI_CONTEXT_OVERRIDES[slug];
+  const defaultWindow = positiveInt(override?.contextWindow);
+  const longWindow = positiveInt(override?.maxContextWindow);
+  if (defaultWindow === undefined || longWindow === undefined || longWindow <= defaultWindow) return undefined;
+  const resolved = asLimits(limits);
+  const levers = [
+    positiveInt(resolved.modelWindows?.[slug]),
+    positiveInt(resolved.providerWindow),
+    positiveInt(resolved.cap),
+  ];
+  if (levers.some(lever => lever !== undefined && lever < longWindow)) return undefined;
+  return { defaultWindow, longWindow };
 }
 
 /**
@@ -463,15 +507,17 @@ export function applyNativeVisibility(
 
 function upstreamNativeEntryForSlug(slug: string): RawEntry | undefined {
   const sourceSlug = nativeOpenAiCapabilitySourceSlug(slug);
-  if (!sourceSlug.startsWith("gpt-5.6-")) return undefined;
+  if (!sourceSlug.startsWith("gpt-5.6-") && !SELF_DESCRIBED_NATIVE_OPENAI_MODELS.has(slug)) return undefined;
   const source = PINNED_UPSTREAM_MODELS.get(sourceSlug);
   if (!source) return undefined;
-  if (slug === sourceSlug) return source;
+  if (slug === sourceSlug) return withDerivedBaseInstructions(source);
 
   const alias = structuredClone(source) as RawEntry;
   alias.slug = slug;
-  alias.display_name = "Daybreak Blue";
-  alias.description = "Frontier general-purpose model with safeguards for defensive cybersecurity work.";
+  const presentation = nativeOpenAiAliasPresentation(slug);
+  if (!presentation) return undefined;
+  alias.display_name = presentation.displayName;
+  alias.description = presentation.description;
   if (typeof alias.base_instructions === "string") {
     alias.base_instructions = identifyRoutedModel(alias.base_instructions, slug);
   }
@@ -486,6 +532,16 @@ function upstreamNativeEntryForSlug(slug: string): RawEntry | undefined {
   }
   delete alias.availability_nux;
   return alias;
+}
+
+function withDerivedBaseInstructions(entry: RawEntry): RawEntry {
+  if (typeof entry.base_instructions === "string" && entry.base_instructions.length > 0) return entry;
+  const messages = entry.model_messages;
+  const template = messages && typeof messages === "object" && !Array.isArray(messages)
+    ? (messages as Record<string, unknown>).instructions_template
+    : undefined;
+  if (typeof template !== "string" || template.length === 0) return entry;
+  return { ...entry, base_instructions: template };
 }
 
 export const UPSTREAM_NATIVE_ENTRIES: Map<string, RawEntry> = new Map(
@@ -503,10 +559,20 @@ export function upstreamNativeEntry(slug: string): RawEntry | null {
   return clone;
 }
 
+export function nativeOpenAiCapabilityDisplayName(slug: string): string | undefined {
+  const presentation = nativeOpenAiAliasPresentation(slug);
+  if (presentation) return presentation.displayName;
+  const pinned = UPSTREAM_NATIVE_ENTRIES.get(slug);
+  return typeof pinned?.display_name === "string" ? pinned.display_name : undefined;
+}
+
+const SELF_AUTHORED_NATIVE_ROWS: ReadonlySet<string> = new Set([NATIVE_GPT6_ASTRA_MODEL]);
+
 export function shouldUpgradeToUpstreamEntry(entry: RawEntry): boolean {
-  return typeof entry.slug === "string"
-    && UPSTREAM_NATIVE_ENTRIES.has(entry.slug)
-    && entry.display_name === entry.slug;
+  if (typeof entry.slug !== "string" || !UPSTREAM_NATIVE_ENTRIES.has(entry.slug)) return false;
+  if (entry.display_name === entry.slug) return true;
+  return SELF_AUTHORED_NATIVE_ROWS.has(entry.slug)
+    && entry.display_name !== UPSTREAM_NATIVE_ENTRIES.get(entry.slug)?.display_name;
 }
 
 export function nativeOpenAiSlugs(): string[] {

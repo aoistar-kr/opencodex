@@ -8,6 +8,10 @@ import {
 } from "./responses-field-backfill";
 import { checkInputAdmission } from "./input-admission";
 import { nativeContextLimits } from "../../codex/catalog";
+import {
+  CODEX_STANDALONE_WEB_RUN_WIRE_NAME,
+  codexStandaloneWebRunAuthorized,
+} from "../../codex/standalone-web-search-authority";
 import { describeUpstreamConnectFailure } from "./upstream-error";
 import {
   multiAgentGuidanceEnabled,
@@ -28,7 +32,7 @@ import {
   rememberReasoningReplayOpaqueBlobRejection,
 } from "../../responses/reasoning-replay-cache";
 import { awaitThoughtSignatureDurability, thoughtSignatureReplaySalt } from "../../responses/thought-signature-replay";
-import { buildCompactV1Output, COMPACT_PROMPT, decodeCompactionSummary, extractCompactUserMessages } from "../../responses/compaction";
+import { buildCompactV1Output, COMPACT_PROMPT, compactionOriginFingerprint, decodeCompactionSummary, extractCompactUserMessages } from "../../responses/compaction";
 import { FORWARD_HEADERS, sanitizeReasoningInputContent } from "../../adapters/openai-responses";
 import { XaiToolSchemaCompatibilityError } from "../../adapters/xai-tool-schema";
 import {
@@ -86,6 +90,12 @@ import {
 import { injectionDebugLog } from "../../lib/injection-debug-log";
 import { resolveClientRetryAfter } from "../../lib/retry-after";
 import { enrichOpenCodeZenRateLimitMessage } from "../../providers/opencode-zen-rate-limit";
+import {
+  OPENCODE_GO_SESSION_HEADER,
+  OPENCODE_GO_SESSION_REQUIRED_MESSAGE,
+  isOpenCodeGoTransport,
+  withOpenCodeGoSession,
+} from "../../providers/opencode-go-transport";
 import { CODE_MODE_EXEC_TOOL_NAME, modelInList, namespacedToolName } from "../../types";
 import type {
   AdapterEvent,
@@ -339,6 +349,7 @@ import {
   hasResponsesSnapshotRepair,
   repairResponsesSnapshotJson,
 } from "../responses-snapshot-repair";
+import { createGrokResponsesControlFrameBlockRewrite } from "../grok-responses-control-frame";
 import {
   composeSseBlockRewrites,
   composeSsePayloadRewrites,
@@ -347,6 +358,8 @@ import {
 } from "../sse-payload-rewrite";
 import { restoreRoutedCustomCalls, restoreRoutedCustomCallsInJson } from "../../responses/custom-tool-compat";
 import { createRoutedCustomToolRestoreBlockRewrite } from "../responses-custom-tool-repair";
+import { collectFunctionCallRepairSchemas, repairFunctionCallsInJson } from "../../responses/function-call-compat";
+import { createResponsesFunctionToolRepairBlockRewrite } from "../responses-function-tool-repair";
 import { restoreRoutedToolSearchCallsInJson } from "../../responses/tool-search-compat";
 import { createRoutedToolSearchRestoreBlockRewrite } from "../responses-tool-search-repair";
 import {
@@ -370,6 +383,7 @@ import {
 } from "../responses-undeclared-tool-guard";
 import { createGithubCopilotResponsesBlockRewrite } from "../github-copilot-responses-repair";
 import { responsesJsonToSseStream } from "../responses-json-events";
+import { addPortableShadowToSnapshot, type CompletedResponsesSnapshot } from "./native-compaction-portability";
 import { guardTerminalEventStream } from "./terminal-guard";
 import {
   emptyCompletionRetryEnabled,
@@ -3050,15 +3064,17 @@ async function handleResponsesInner(
 
   // The canonical ChatGPT backend rejects previous_response_id, so a local replay miss leaves no
   // safe way to recover the omitted history. Fail before auth, adapter construction, or upstream
-  // I/O instead of stripping the id and silently forwarding a context-free delta (#702).
+  // I/O instead of stripping the id and silently forwarding a context-free delta (#702). Codex
+  // recognizes previous_response_not_found and can reconnect with its full input; a generic
+  // invalid_request_error terminates the task after cache expiry.
   if (
     hasUnexpandedPreviousResponse
     && isCanonicalOpenAiForwardProvider(route.provider)
   ) {
     return formatErrorResponse(
       400,
-      "invalid_request_error",
-      "OpenAI forward continuation state is unavailable or expired; start a new session instead of reusing this previous_response_id.",
+      "previous_response_not_found",
+      "OpenAI forward continuation state is unavailable or expired; resend the full conversation without previous_response_id.",
     );
   }
 
@@ -3332,6 +3348,27 @@ async function handleResponsesInner(
       ? resolveCopilotApiBaseUrl(sentOAuthSnapshot?.apiBaseUrl)
       : undefined,
   );
+  // OpenCode Go requires one stable session id per conversation for prompt-cache/routing affinity.
+  // Use the already-opaque request-log conversation digest (or the pre-populated Claude digest)
+  // so no raw client thread id leaves the proxy. Inject before wire override so Responses, Chat,
+  // and Anthropic adapters all inherit the same transport header; key rotation spreads the active
+  // provider and therefore keeps the value on every retry/failover attempt.
+  const openCodeGoSessionId = resolvedConversationId
+    ?? logCtx.conversationId
+    ?? normalizeLogConversationId(req.headers.get(OPENCODE_GO_SESSION_HEADER));
+  route.provider = withOpenCodeGoSession(route.provider, openCodeGoSessionId);
+  if (isOpenCodeGoTransport(route.provider) && !openCodeGoSessionId) {
+    releaseCodexAuthContextProbeLease(authCtx);
+    return formatErrorResponse(400, "invalid_request_error", OPENCODE_GO_SESSION_REQUIRED_MESSAGE);
+  }
+  // Codex standalone `web.run` is a first-party client tool and, unlike ordinary tools, is not
+  // serialized into the Responses request's `tools[]`. OpenCode Go deliberately delegates search
+  // to that client-owned surface, so admit only its exact flattened name when the local Codex
+  // feature and caller identity prove that contract is active. Every other undeclared tool keeps
+  // the existing fail-closed bridge behavior.
+  if (codexStandaloneWebRunAuthorized(route.providerName, req.headers)) {
+    toolBridgeMaps.declaredToolNames.add(CODEX_STANDALONE_WEB_RUN_WIRE_NAME);
+  }
   let adapterProvider = resolveWireProtocolOverride(route.providerName, route.modelId, route.provider, inboundWire);
   const stripClaudeMainAuth = options.stripClaudeMainAuthForNoncanonicalForward === true
     && adapterProvider.adapter === "openai-responses"
@@ -3562,6 +3599,9 @@ async function handleResponsesInner(
       parsed._rawBody,
       replayedInputPrefixLength,
     );
+    const functionRepairSchemas = isCanonicalOpenAiForwardProvider(route.provider)
+      ? new Map()
+      : collectFunctionCallRepairSchemas(clientToolAuthorizationBody);
     const clientExplicitWireToolCatalog = hasExplicitWireToolCatalog(clientToolAuthorizationBody);
     const clientDeclaredWireToolNames = collectDeclaredWireToolNames(clientToolAuthorizationBody);
     const clientDeclaredNamelessCallTypes = collectDeclaredNamelessClientCallTypes(
@@ -3654,6 +3694,18 @@ async function handleResponsesInner(
     );
     const restoreAuthorizedBareNamespaceToolCalls = (value: unknown): unknown =>
       restoreRoutedNamespaceCalls(value, authorizedBareNamespaceToolAliases).value;
+    const restoreKnownNamespaceToolCalls = (value: unknown): unknown =>
+      restoreAuthorizedBareNamespaceToolCalls(
+        restoreRoutedNamespaceCalls(value, routedNamespaceToolAliases).value,
+      );
+    const normalizeFunctionCompletionJson = (text: string): string => {
+      const snapshot = hasResponsesSnapshotRepair(route.provider.responsesSnapshotRepair)
+        ? repairResponsesSnapshotJson(text, outboundRequestBody)
+        : text;
+      // Sparse gateways need completion/status backfills before schema repair can distinguish an
+      // authoritative completed call from an in-progress placeholder.
+      return repairFunctionCallsInJson(backfillResponsesFieldsJson(snapshot), functionRepairSchemas);
+    };
     let undeclaredToolGuardActive = false;
     const refreshUndeclaredToolGuard = (builtRequest: AdapterRequest): void => {
       outboundRequestBody = parseOutboundRequestBody(builtRequest.body);
@@ -3735,7 +3787,7 @@ async function handleResponsesInner(
       // state for exactly the passthrough traffic the guard deliberately stands down for.
       if (!undeclaredToolGuardActive || inspectionSawUndeclaredTool) return;
       if (undeclaredToolCallName(
-        restoreAuthorizedBareNamespaceToolCalls(payload),
+        restoreKnownNamespaceToolCalls(payload),
         declaredWireToolNames,
         declaredNamelessClientCallTypes,
         providerExecutedCallTypes,
@@ -3746,12 +3798,15 @@ async function handleResponsesInner(
     const rememberPassthroughResponseChecked = rememberPassthroughResponse
       ? (response: { id?: unknown; output?: unknown; status?: unknown }) => {
         if (inspectionSawUndeclaredTool) return;
-        const restoredResponse = restoreRoutedCustomCalls(
-          restoreAuthorizedBareNamespaceToolCalls(response),
+        const restored = restoreRoutedCustomCalls(
+          restoreKnownNamespaceToolCalls(response),
           routedCustomToolNames,
           routedCustomToolRepairNames,
           declaredWireToolNames,
-        ).value as { id?: unknown; output?: unknown; status?: unknown };
+        ).value;
+        const restoredResponse = (functionRepairSchemas.size > 0
+          ? JSON.parse(normalizeFunctionCompletionJson(JSON.stringify(restored)))
+          : restored) as { id?: unknown; output?: unknown; status?: unknown };
         if (
           undeclaredToolGuardActive
           && undeclaredToolCallNameInResponse(
@@ -4438,6 +4493,110 @@ async function handleResponsesInner(
       });
     }
 
+    // Canonical remote-compaction v2 is NOT served by `/responses/compact` on the current
+    // ChatGPT backend. Codex sends a normal `/responses` request ending in `compaction_trigger`,
+    // and that private contract is stream-only. Buffer only THIS internal compaction turn through
+    // its protocol terminal so we can attach a provider-neutral shadow to the returned native
+    // compact state before Codex persists it. Ordinary passthrough turns keep the zero/low-copy
+    // tee/eager streaming paths below.
+    if (
+      parsed._compactionRequest === true
+      && isCanonicalOpenAiForwardProvider(route.provider)
+      && isEventStream
+      && upstreamResponse.body
+    ) {
+      const terminal = { status: "incomplete" as ResponsesTerminalStatus };
+      let completed: CompletedResponsesSnapshot | undefined;
+      const reportCompactionTerminal = (status: ResponsesTerminalStatus, httpStatusOverride?: number): void => {
+        terminal.status = status;
+        terminalRecorder?.(status, httpStatusOverride);
+        if (status === "failed") {
+          const quotaFailureMessage = httpStatusOverride === 429 || httpStatusOverride === 402
+            || logCtx.terminalHttpStatus === 429
+            || logCtx.terminalHttpStatus === 402
+            ? (httpStatusOverride ?? logCtx.terminalHttpStatus)
+            : undefined;
+          if (!isFixedCodexAccount(authCtx) && quotaFailureMessage !== undefined) {
+            recordSubagentQuotaFailureForThreadSpawn(
+              req.headers,
+              subagentQuotaFailureModel,
+              quotaFailureMessage,
+              config,
+              subagentFallbackAccountId,
+            );
+          }
+        }
+        options.onNativePassthroughTerminal?.(status);
+      };
+      await new Promise<void>(resolve => {
+        consumeForInspection(
+          upstreamResponse.body!,
+          reportCompactionTerminal,
+          upstream.signal,
+          resolve,
+          logCtx,
+          () => options.onNativePassthroughCancel?.(),
+          value => { completed = value as CompletedResponsesSnapshot; },
+          options.onFirstOutput,
+          {
+            upstream,
+            onParsedPayload: noteInspectedPayload,
+          },
+        );
+      });
+      if (upstream.signal.aborted || options.abortSignal?.aborted) return clientCancelledResponse();
+      if (terminal.status !== "completed" || !completed) {
+        return formatErrorResponse(
+          502,
+          "upstream_error",
+          "native compaction stream ended without a completed response snapshot",
+        );
+      }
+      commitReasoningReplayServingRoute();
+      const replayIdentity = parsed._reasoningReplayScope?.current;
+      const origin = compactionOriginFingerprint([
+        replayIdentity?.providerName,
+        replayIdentity?.providerDestinationDurableIdentity,
+        replayIdentity?.credentialDurableIdentity,
+        replayIdentity?.adapterName,
+        replayIdentity?.modelId,
+      ]);
+      const portable = await addPortableShadowToSnapshot({
+        snapshot: completed,
+        signal: upstream.signal,
+        origin,
+        transport: {
+          providerName: route.providerName,
+          provider: adapterProvider,
+          headers: new Headers(request.headers),
+          model: route.modelId,
+          connectMs,
+          url: request.url,
+        },
+      });
+      let stream: ReadableStream<Uint8Array>;
+      try {
+        stream = responsesJsonToSseStream(portable as Record<string, unknown>);
+      } catch (error) {
+        if (error instanceof RangeError) {
+          return formatErrorResponse(
+            502,
+            "upstream_error",
+            "native compaction response exceeded the synthesized SSE item limit",
+          );
+        }
+        throw error;
+      }
+      const compactionHeaders = sanitizePassthroughHeaders(headers);
+      compactionHeaders.set("content-type", "text/event-stream");
+      compactionHeaders.set("cache-control", "no-store");
+      return markNativePassthroughSseResponse(new Response(stream, {
+        status: upstreamResponse.status,
+        statusText: upstreamResponse.statusText,
+        headers: compactionHeaders,
+      }));
+    }
+
     // Bun#32111 workaround: passthrough SSE uses tee()+native relay to avoid the
     // async-pull segfault on Windows. Branch[0] goes directly to the Response (Bun
     // native relay, never enters JS Sink.write); branch[1] is consumed in the
@@ -4515,10 +4674,19 @@ async function handleResponsesInner(
         githubCopilotRepairEnabled
           ? createGithubCopilotResponsesBlockRewrite(translatorBudget)
           : undefined,
+        // Grok's strict Responses client decoder does not know Codex-only control frames. The
+        // inspection branch has already seen them for proxy metadata/quota accounting; strip only
+        // the client-facing copies and leave every declared Responses event untouched.
+        logCtx.surface === "grok"
+          ? createGrokResponsesControlFrameBlockRewrite()
+          : undefined,
         snapshotRepairEnabled
           ? createResponsesSnapshotBlockRewrite(outboundRequestBody, translatorBudget)
           : undefined,
         createResponsesFieldBackfillBlockRewrite(),
+        functionRepairSchemas.size > 0
+          ? createResponsesFunctionToolRepairBlockRewrite(functionRepairSchemas, translatorBudget)
+          : undefined,
         // Last: every rewrite above can still rename or reshape a call item, so the guard must
         // compare the names the client will actually receive against the declared catalog.
         undeclaredToolGuardActive
@@ -4727,12 +4895,10 @@ async function handleResponsesInner(
           restored,
           routedToolSearchNames,
         );
-        const repaired = hasResponsesSnapshotRepair(route.provider.responsesSnapshotRepair)
-          ? repairResponsesSnapshotJson(restoredToolSearch, outboundRequestBody)
-          : restoredToolSearch;
+        const repaired = normalizeFunctionCompletionJson(restoredToolSearch);
         const modelRewritten = parsed._responseModelId !== undefined && parsed._responseModelId !== parsed.modelId
-          ? rewriteResponsesModelJson(backfillResponsesFieldsJson(repaired), parsed._responseModelId)
-          : backfillResponsesFieldsJson(repaired);
+          ? rewriteResponsesModelJson(repaired, parsed._responseModelId)
+          : repaired;
         // The bounded-JSON answer bypasses the SSE payload rewrite, so content-
         // channel reasoning needs the same normalization here for the plain
         // JSON answer and every reframed-SSE variant built from clientJson.

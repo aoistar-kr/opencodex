@@ -7,6 +7,7 @@
  * unchanged. The Responses output (SSE or JSON) is converted back to Anthropic shape.
  */
 import { FORWARD_HEADERS } from "../adapters/openai-responses";
+import { OPENCODE_GO_SESSION_HEADER } from "../providers/opencode-go-transport";
 import { sseFieldValue } from "../lib/sse-decoder";
 import { enforceAnthropicImageLimits, sniffImageDimensions } from "../adapters/anthropic-image-guard";
 import { normalizeAnthropicImages } from "../adapters/anthropic-image-normalize";
@@ -727,6 +728,11 @@ async function handleClaudeMessagesWithBudget(
     const value = req.headers.get(name);
     if (value) headers.set(name, value);
   }
+  // `x-opencode-session` is NOT a general upstream-forward header. Carry it only across this
+  // Anthropic->Responses internal replay so handleResponses can normalize it and attach the
+  // opaque digest if (and only if) the resolved destination is OpenCode Go.
+  const explicitOpenCodeGoSession = req.headers.get(OPENCODE_GO_SESSION_HEADER);
+  if (explicitOpenCodeGoSession) headers.set(OPENCODE_GO_SESSION_HEADER, explicitOpenCodeGoSession);
   // Routed replays need main ChatGPT auth so OpenAI-backed sidecars remain reachable;
   // native replays have no caller ChatGPT credential. This enrichment is optional:
   // auth-context later rejects a real physical-main selection, while routed/pool

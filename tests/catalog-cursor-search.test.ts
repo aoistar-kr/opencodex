@@ -13,11 +13,17 @@ describe("routed catalog search advertising", () => {
     expect(entry.supports_parallel_tool_calls).toBe(true);
   });
 
-  test("non-cursor routed entries advertise deferred discovery alongside hosted web search", () => {
+  test("opencode-go entries keep deferred discovery but never advertise hosted web search", () => {
     const entry = normalizeRoutedCatalogEntry({ slug: "opencode-go/glm-5.2" } as never) as Record<string, unknown>;
     expect(entry.supports_search_tool).toBe(true);
-    expect(entry.web_search_tool_type).toBe("text_and_image");
+    expect(entry.web_search_tool_type).toBeUndefined();
     expect(entry.supports_parallel_tool_calls).toBe(false);
+  });
+
+  test("ordinary non-cursor routed entries still advertise hosted web search", () => {
+    const entry = normalizeRoutedCatalogEntry({ slug: "local/qwen3-coder" } as never) as Record<string, unknown>;
+    expect(entry.supports_search_tool).toBe(true);
+    expect(entry.web_search_tool_type).toBe("text_and_image");
   });
 
   // Pair fence: code_mode_only + supports_search_tool=true must move together. Deferral is only
@@ -46,6 +52,17 @@ describe("routed catalog search advertising", () => {
       { provider: "cursor", id: "auto" },
     ]) as Array<Record<string, unknown>>;
     const routed = entries.find(e => typeof e.slug === "string" && (e.slug as string).startsWith("cursor/"));
+    expect(routed).toBeDefined();
+    expect(routed?.tool_mode).toBe("code_mode_only");
+    expect(routed?.supports_search_tool).toBe(true);
+    expect(routed?.web_search_tool_type).toBeUndefined();
+  });
+
+  test("opencode-go template-less fallback rows also omit hosted search", () => {
+    const entries = buildCatalogEntries(null, [], [
+      { provider: "opencode-go", id: "glm-5.2" },
+    ]) as Array<Record<string, unknown>>;
+    const routed = entries.find(e => e.slug === "opencode-go/glm-5.2");
     expect(routed).toBeDefined();
     expect(routed?.tool_mode).toBe("code_mode_only");
     expect(routed?.supports_search_tool).toBe(true);

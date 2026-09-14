@@ -5,9 +5,15 @@ import {
   buildProfileFile,
   buildProviderTableBlock,
   chooseCatalogPathForInjection,
+  codexFeatureRegistrySupports,
   dominantEol,
+  ensureManagedStandaloneWebSearchFeature,
+  MANAGED_STANDALONE_WEB_SEARCH_MARKER,
+  MANAGED_STANDALONE_WEB_SEARCH_TABLE_MARKER,
+  probeInstalledCodexStandaloneWebSearch,
   setRootOpenaiBaseUrl,
   stripInjectedOpenaiBaseUrl,
+  stripManagedStandaloneWebSearchFeature,
   stripOpencodexConfig,
   stripRootContextWindowOverrides,
 } from "../src/codex/inject";
@@ -17,13 +23,19 @@ import {
 } from "../src/codex/subagent-defaults";
 
 describe("Codex config injection", () => {
-  test("omits provider-level Responses WebSocket support by default", () => {
+  test("omits unproven provider capabilities by default", () => {
     const block = buildProviderTableBlock(10100);
 
     expect(block).toContain("[model_providers.opencodex]");
     expect(block).toContain('wire_api = "responses"');
     expect(block).toContain("requires_openai_auth = true");
+    expect(block).not.toContain("supports_standalone_web_search");
     expect(block).not.toContain("supports_websockets");
+  });
+
+  test("advertises standalone search only after installed Codex capability is proven", () => {
+    const block = buildProviderTableBlock(10100, false, false, undefined, true);
+    expect(block).toContain("supports_standalone_web_search = true");
   });
 
   test("can suppress provider-level Responses WebSocket support for explicit opt-out", () => {
@@ -36,6 +48,102 @@ describe("Codex config injection", () => {
     const block = buildProviderTableBlock(10100, true);
 
     expect(block).toContain("supports_websockets = true");
+  });
+
+  test("installed Codex feature registry distinguishes supported, removed, and absent rows", () => {
+    expect(codexFeatureRegistrySupports(
+      "standalone_web_search   under development  false\n",
+      "standalone_web_search",
+    )).toBe(true);
+    expect(codexFeatureRegistrySupports(
+      "standalone_web_search   removed  false\n",
+      "standalone_web_search",
+    )).toBe(false);
+    expect(codexFeatureRegistrySupports("fast_mode stable true\n", "standalone_web_search")).toBe(false);
+  });
+
+  test("installed Codex standalone-search probe is read-only, dependency-injectable, and fail-closed", () => {
+    const commands: string[] = [];
+    expect(probeInstalledCodexStandaloneWebSearch({
+      resolveRuntime: () => ({ command: "codex-test", version: "0.152.1" }),
+      runFeaturesList: command => {
+        commands.push(command);
+        return "standalone_web_search under development false\n";
+      },
+    })).toBe(true);
+    expect(commands).toEqual(["codex-test"]);
+
+    expect(probeInstalledCodexStandaloneWebSearch({
+      resolveRuntime: () => ({ command: "old-codex", version: "0.151.0" }),
+      runFeaturesList: () => "fast_mode stable true\n",
+    })).toBe(false);
+
+    expect(probeInstalledCodexStandaloneWebSearch({
+      resolveRuntime: () => ({ command: "broken-codex", version: null }),
+      runFeaturesList: () => { throw new Error("probe failed"); },
+    })).toBe(false);
+  });
+
+  test("enables Codex standalone web search as a marker-owned feature when the user has no override", () => {
+    const original = 'model = "gpt-5.5"\n';
+    const injected = ensureManagedStandaloneWebSearchFeature(original);
+
+    expect(injected).toContain(MANAGED_STANDALONE_WEB_SEARCH_TABLE_MARKER);
+    expect(injected).toContain(MANAGED_STANDALONE_WEB_SEARCH_MARKER);
+    expect(injected).toContain("standalone_web_search = true");
+    expect(Bun.TOML.parse(injected).features.standalone_web_search).toBe(true);
+    expect(stripManagedStandaloneWebSearchFeature(injected)).toBe(original);
+  });
+
+  test("preserves explicit standalone-web-search and web-search policy overrides", () => {
+    for (const mode of ["disabled", "cached", "live"] as const) {
+      const original = [
+        `web_search = "${mode}"`,
+        "",
+        "[features]",
+        "standalone_web_search = false",
+        "",
+      ].join("\n");
+      const injected = ensureManagedStandaloneWebSearchFeature(original);
+
+      expect(injected).toBe(original);
+      expect(Bun.TOML.parse(injected).web_search).toBe(mode);
+      expect(Bun.TOML.parse(injected).features.standalone_web_search).toBe(false);
+      expect(injected).not.toContain(MANAGED_STANDALONE_WEB_SEARCH_MARKER);
+    }
+  });
+
+  test("releases ownership instead of overriding a managed standalone-search key edited to false", () => {
+    const edited = [
+      'model = "gpt-5.5"',
+      "",
+      MANAGED_STANDALONE_WEB_SEARCH_TABLE_MARKER,
+      "[features]",
+      MANAGED_STANDALONE_WEB_SEARCH_MARKER,
+      "standalone_web_search = false",
+      "",
+    ].join("\n");
+    const reinjected = ensureManagedStandaloneWebSearchFeature(edited);
+
+    expect(Bun.TOML.parse(reinjected).features.standalone_web_search).toBe(false);
+    expect(reinjected).not.toContain(MANAGED_STANDALONE_WEB_SEARCH_MARKER);
+    expect(reinjected).not.toContain(MANAGED_STANDALONE_WEB_SEARCH_TABLE_MARKER);
+  });
+
+  test("fallback cleanup removes only the managed standalone-search key from a user features table", () => {
+    const injected = [
+      "[features] # user table",
+      "fast_mode = false",
+      MANAGED_STANDALONE_WEB_SEARCH_MARKER,
+      "standalone_web_search = true",
+      "",
+    ].join("\n");
+    const stripped = stripManagedStandaloneWebSearchFeature(injected);
+
+    expect(stripped).toContain("[features] # user table");
+    expect(stripped).toContain("fast_mode = false");
+    expect(stripped).not.toContain("standalone_web_search");
+    expect(stripped).not.toContain(MANAGED_STANDALONE_WEB_SEARCH_MARKER);
   });
 
   test("non-loopback proxy mode injects the modern env_key admission line (#2073)", () => {
@@ -157,6 +265,18 @@ describe("Codex config injection", () => {
     expect(profile).not.toContain("model_catalog_json");
   });
 
+  test("loopback fallback profile carries proven standalone search in the same features table as fast_mode", () => {
+    const profile = buildProfileFile(10100, null, false, false, undefined, true, true);
+
+    expect(profile.match(/\[features\]/g)?.length).toBe(1);
+    expect(profile).toContain("fast_mode = true");
+    expect(profile).toContain("standalone_web_search = true");
+    expect(Bun.TOML.parse(profile).features).toMatchObject({
+      fast_mode: true,
+      standalone_web_search: true,
+    });
+  });
+
   test("fallback profile does not force fast_mode when fastMode is unset", () => {
     expect(buildProfileFile(10100, null)).not.toContain("fast_mode");
     expect(buildProfileFile(10100, null, false, true, "192.168.1.20")).not.toContain("fast_mode");
@@ -275,6 +395,27 @@ describe("Design B openai_base_url injection", () => {
     expect(markerIdx).toBeGreaterThanOrEqual(0);
     expect(keyIdx).toBe(markerIdx + 1);
     expect(keyIdx).toBeLessThan(tableIdx);
+  });
+
+  test("keeps a managed features-table ownership marker attached during root reinsertion", () => {
+    const original = [
+      'model = "gpt-5.5"',
+      "",
+      MANAGED_STANDALONE_WEB_SEARCH_TABLE_MARKER,
+      "[features]",
+      MANAGED_STANDALONE_WEB_SEARCH_MARKER,
+      "standalone_web_search = true",
+      "",
+    ].join("\n");
+    const { content } = setRootOpenaiBaseUrl(original, 10100);
+    const lines = content.split("\n");
+    const rootMarkerIdx = lines.findIndex(l => l.includes("Auto-injected by opencodex"));
+    const tableMarkerIdx = lines.indexOf(MANAGED_STANDALONE_WEB_SEARCH_TABLE_MARKER);
+    const tableIdx = lines.indexOf("[features]");
+
+    expect(rootMarkerIdx).toBeGreaterThanOrEqual(0);
+    expect(rootMarkerIdx).toBeLessThan(tableMarkerIdx);
+    expect(tableIdx).toBe(tableMarkerIdx + 1);
   });
 
   test("re-inject is idempotent and rewrites the marker-owned line on port change", () => {

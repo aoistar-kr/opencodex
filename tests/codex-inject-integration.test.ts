@@ -17,16 +17,29 @@ setDefaultTimeout(SPAWN_BUDGET_MS);
 
 // Full injectCodexConfig runs in a subprocess with isolated CODEX_HOME/OPENCODEX_HOME so
 // module-level path constants bind to the temp dirs (same pattern as codex-journal.test.ts).
-function runInject(codexHome: string, ocxHome: string, configJson = "{}"): { stdout: string; status: number } {
+function runInject(
+  codexHome: string,
+  ocxHome: string,
+  configJson = "{}",
+  standaloneWebSearchSupported = true,
+): { stdout: string; status: number } {
   const script = `
     const { injectCodexConfig } = require("./src/codex/inject");
-    injectCodexConfig(10100, JSON.parse(process.env.TEST_OCX_CONFIG)).then(r => {
+    injectCodexConfig(10100, JSON.parse(process.env.TEST_OCX_CONFIG), {
+      standaloneWebSearchCapabilityProbe: () => process.env.TEST_STANDALONE_SUPPORTED === "true",
+    }).then(r => {
       console.log(JSON.stringify(r));
     });
   `;
   const result = spawnSync(process.execPath, ["--eval", script], {
     cwd: repoRoot,
-    env: { ...process.env, CODEX_HOME: codexHome, OPENCODEX_HOME: ocxHome, TEST_OCX_CONFIG: configJson },
+    env: {
+      ...process.env,
+      CODEX_HOME: codexHome,
+      OPENCODEX_HOME: ocxHome,
+      TEST_OCX_CONFIG: configJson,
+      TEST_STANDALONE_SUPPORTED: String(standaloneWebSearchSupported),
+    },
     encoding: "utf8",
     timeout: SPAWN_BUDGET_MS - 5_000,
   });
@@ -112,9 +125,31 @@ describe("injectCodexConfig integration (Design B)", () => {
 
     const config = readFileSync(join(codexHome, "config.toml"), "utf8");
     expect(config).toContain('env_key = "OPENCODEX_API_AUTH_TOKEN"');
+    expect(config).toContain("supports_standalone_web_search = true");
     expect(config).not.toContain("env_http_headers");
     // Still exactly one provider block, no duplicate accumulation.
     expect(config.match(/\[model_providers\.opencodex]/g)?.length).toBe(1);
+  });
+
+  test("unsupported installed Codex fails closed without standalone feature or provider capability", () => {
+    writeFileSync(join(codexHome, "config.toml"), 'model = "gpt-5.5"\n', "utf8");
+
+    const r = runInject(
+      codexHome,
+      ocxHome,
+      JSON.stringify({ hostname: "192.168.1.50" }),
+      false,
+    );
+    expect(r.status).toBe(0);
+    expect(JSON.parse(r.stdout).success).toBe(true);
+
+    const config = readFileSync(join(codexHome, "config.toml"), "utf8");
+    expect(config).not.toContain("standalone_web_search");
+    expect(config).not.toContain("supports_standalone_web_search");
+
+    const profile = readFileSync(join(codexHome, "opencodex.config.toml"), "utf8");
+    expect(profile).not.toContain("standalone_web_search");
+    expect(profile).not.toContain("supports_standalone_web_search");
   });
 
   test("re-inject over a Design B config is idempotent", () => {
@@ -265,7 +300,7 @@ describe("injectCodexConfig integration (Design B)", () => {
     expect(profile).not.toContain("fast_mode");
   });
 
-  test("fastMode unset does not add a [features] table to a config that lacks one", () => {
+  test("fastMode unset leaves fast_mode alone while OpenCodex enables standalone web search", () => {
     writeFileSync(join(codexHome, "config.toml"), 'model = "gpt-5.5"\n', "utf8");
 
     const r = runInject(codexHome, ocxHome);
@@ -273,11 +308,37 @@ describe("injectCodexConfig integration (Design B)", () => {
     expect(JSON.parse(r.stdout).success).toBe(true);
 
     const config = readFileSync(join(codexHome, "config.toml"), "utf8");
-    expect(config).not.toContain("[features]");
+    expect(config).toContain("[features]");
+    expect(config).toContain("standalone_web_search = true");
     expect(config).not.toContain("fast_mode");
 
     const profile = readFileSync(join(codexHome, "opencodex.config.toml"), "utf8");
     expect(profile).not.toContain("fast_mode");
+  });
+
+  test("preserves explicit user web_search mode and standalone_web_search=false", () => {
+    writeFileSync(join(codexHome, "config.toml"), [
+      'model = "gpt-5.5"',
+      'web_search = "disabled"',
+      "",
+      "[features]",
+      "standalone_web_search = false",
+      "",
+    ].join("\n"), "utf8");
+
+    const r = runInject(codexHome, ocxHome);
+    expect(r.status).toBe(0);
+    expect(JSON.parse(r.stdout).success).toBe(true);
+
+    const config = readFileSync(join(codexHome, "config.toml"), "utf8");
+    const parsed = Bun.TOML.parse(config);
+    expect(parsed.web_search).toBe("disabled");
+    expect(parsed.features.standalone_web_search).toBe(false);
+    expect(config).not.toContain("standalone_web_search = true");
+
+    const profile = readFileSync(join(codexHome, "opencodex.config.toml"), "utf8");
+    expect(profile).toContain("standalone_web_search = false");
+    expect(profile).not.toContain("standalone_web_search = true");
   });
 
   test("fastMode=false updates a commented [features] header without duplicating the table", () => {

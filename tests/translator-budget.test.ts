@@ -289,9 +289,12 @@ test("production adapter contract rejects omitted translator budgets at typechec
     // tsconfig.json is present (TS5112); the fixture is checked standalone.
     "--ignoreConfig",
   ];
-  const invalid = Bun.spawnSync(["bun", ...base, "tests/fixtures/translator-budget-required.invalid.ts"]);
+  // Use the Bun executable running this test instead of assuming a globally installed
+  // `bun` is present on PATH. The Windows shard gate intentionally invokes repo Bun by
+  // absolute path, so PATH is not part of this type-contract assertion.
+  const invalid = Bun.spawnSync([process.execPath, ...base, "tests/fixtures/translator-budget-required.invalid.ts"]);
   expect(invalid.exitCode).not.toBe(0);
   expect(invalid.stdout.toString() + invalid.stderr.toString()).toContain("TS2554");
-  const valid = Bun.spawnSync(["bun", ...base, "tests/fixtures/translator-budget-required.valid.ts"]);
+  const valid = Bun.spawnSync([process.execPath, ...base, "tests/fixtures/translator-budget-required.valid.ts"]);
   expect(valid.exitCode).toBe(0);
 }, SPAWN_BUDGET_MS); // two real tsc child processes ARE the assertion; windows runner measured ~5.5s against Bun's 5s default.

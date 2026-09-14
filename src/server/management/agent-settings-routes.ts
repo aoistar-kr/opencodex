@@ -655,8 +655,9 @@ export async function handleAgentSettingsRoutes(ctx: ManagementContext): Promise
     ];
     // #857: let CLI/GUI show when a running Codex app-server keeps an older
     // in-memory catalog than the one on disk.
-    const { collectCodexAppServerCatalogState } = await import("../../codex/app-server-processes");
-    const catalogState = collectCodexAppServerCatalogState();
+    const collectCatalogState = deps.collectCodexAppServerCatalogState
+      ?? (await import("../../codex/app-server-processes")).collectCodexAppServerCatalogState;
+    const catalogState = collectCatalogState();
     return jsonResponse({ chosen, available, catalogState });
   }
   if (url.pathname === "/api/subagent-models" && req.method === "PUT") {

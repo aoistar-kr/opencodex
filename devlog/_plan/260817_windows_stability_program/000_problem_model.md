@@ -1,5 +1,11 @@
 # 000 — Windows stability: why "806/806 green" is not "stable"
 
+> Status reconciliation (2026-09-05): **partially implemented / residual programme**. The unit's
+> own `004_implementation_outcome.md` records 010/020/030/031 as shipped and later phases as open at
+> that time. Numerous subsequent Windows service, test-runner, release, picker, and lifecycle trains
+> changed the same surfaces. Do not execute 040-090 from this old baseline verbatim; re-audit current
+> CI/service/update state first and create a fresh dated continuation plan for any surviving gaps.
+
 Unit opened 2026-08-17, after v2.24.2 shipped.
 
 ## The gap this unit exists to close

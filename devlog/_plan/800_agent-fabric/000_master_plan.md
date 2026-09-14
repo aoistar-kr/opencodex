@@ -1,14 +1,20 @@
 ---
 title: OpenCodex Agent Fabric Master Plan
 programme_id: OCAF
-status: proposed
-version: 0.1
+status: deferred_pending_fab01_authority
+version: 0.2-status-reconciled
 date: 2026-07-30
 repository: lidge-jun/opencodex
 canonical_path: devlog/_plan/800_agent-fabric/000_master_plan.md
 ---
 
 # OpenCodex Agent Fabric Master Plan
+
+> Current status (reconciled 2026-09-05): FAB-00 research/spikes produced useful evidence, but
+> FAB-01 production execution is still **not authorised** by
+> `170_fab01_authority_or_block.md`. This programme is a deferred future track, not the current
+> implementation roadmap. Re-run its acceptance/governance prerequisites against the then-current
+> repository before granting any production phase authority.
 
 ## 0. Authority and use
 

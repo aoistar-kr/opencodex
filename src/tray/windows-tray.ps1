@@ -138,9 +138,31 @@ function Read-ListenTarget {
   return @{ port = 10100; host = "127.0.0.1"; pid = $null }
 }
 
+function Get-ManagementAdminToken {
+  $envToken = [Environment]::GetEnvironmentVariable("OPENCODEX_ADMIN_AUTH_TOKEN")
+  if (-not [string]::IsNullOrWhiteSpace($envToken)) { return $envToken.Trim() }
+  $tokenPath = Join-Path $OpenCodexHome "admin-api-token"
+  if (-not [System.IO.File]::Exists($tokenPath)) { return $null }
+  try {
+    $token = [System.IO.File]::ReadAllText($tokenPath).Trim()
+    if ([string]::IsNullOrWhiteSpace($token)) { return $null }
+    return $token
+  } catch {
+    return $null
+  }
+}
+
+function Add-ManagementAuthHeader([System.Net.HttpWebRequest]$Request) {
+  $token = Get-ManagementAdminToken
+  if (-not [string]::IsNullOrWhiteSpace($token)) {
+    $Request.Headers["X-OpenCodex-API-Key"] = $token
+  }
+}
+
 function Read-JsonUrl([string]$Url) {
   $request = [System.Net.HttpWebRequest]::Create($Url)
   $request.Method = "GET"
+  Add-ManagementAuthHeader $request
   $request.Timeout = 700
   $request.ReadWriteTimeout = 700
   $response = $request.GetResponse()

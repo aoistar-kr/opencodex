@@ -13,6 +13,7 @@ import { getModelMetadata, getModelMetadataCaseInsensitive, listModelMetadata, r
 import { enrichProviderFromRegistry, shouldCaseFoldMetadataModelId } from "../../providers/derive";
 import { getProviderRegistryEntry } from "../../providers/registry";
 import { applyProviderContextCap, providerContextCap } from "../../providers/context-cap";
+import { isCuratedOpenCodeGoModel } from "../../providers/opencode-go";
 import { encodeRoutedModelId, routedSlug, slugEquals, slugsEquivalent } from "../../providers/slug-codec";
 import { CODEX_GPT5_IDENTITY_LINE } from "../../adapters/identity";
 import { filterCursorConfiguredModelsByLiveDiscovery } from "../../adapters/cursor/discovery";
@@ -31,7 +32,7 @@ import { redactSecretString } from "../../lib/redact";
 import upstreamModelsSnapshot from "../data/upstream-models.json";
 
 
-import { NATIVE_OPENAI_CONTEXT_OVERRIDES, SUPPORTED_NATIVE_OPENAI_SLUGS, UPSTREAM_NATIVE_ENTRIES, isNativeOpenAiCapabilityAliasModel, nativeMultiAgentVersion, nativeOpenAiAutoCompactTokenLimit, nativeOpenAiContextWindow, nativeOpenAiMaxInputTokens, type NativeContextLimitsInput } from "./metadata";
+import { NATIVE_OPENAI_CONTEXT_OVERRIDES, SUPPORTED_NATIVE_OPENAI_SLUGS, UPSTREAM_NATIVE_ENTRIES, hasNativeOpenAiCapabilityMetadata, nativeMultiAgentVersion, nativeOpenAiAutoCompactTokenLimit, nativeOpenAiContextWindow, nativeOpenAiMaxInputTokens, type NativeContextLimitsInput } from "./metadata";
 import { clampAutoCompactTokenLimit } from "../../providers/auto-compact-budget";
 import { trustedAccountBoundNativeCatalogSlug } from "./account-models";
 import { CODEX_NATIVE_ALIAS_CATALOG_KIND } from "./kinds";
@@ -147,15 +148,9 @@ export type RawEntry = Record<string, unknown>;
 
 export type RawCatalog = { models?: RawEntry[]; [k: string]: unknown };
 
-export const JAWCODE_CATALOG_AUGMENT_PROVIDERS = new Set(["opencode-go", "deepseek"]);
+export const JAWCODE_CATALOG_AUGMENT_PROVIDERS = new Set(["deepseek"]);
 
-export const ROUTED_MODEL_COMPATIBILITY_EXCLUSIONS = new Set([
-  // Issue #82: Zen Go /models advertises HY3, but Console Go rejects it as outside the lite list.
-  "opencode-go/hy3-preview",
-  // Issue #2330: OpenCode Go models absent from current documentation or returning terminal HTTP 400 errors.
-  "opencode-go/mimo-v2-omni",
-  "opencode-go/mimo-v2-pro",
-]);
+export const ROUTED_MODEL_COMPATIBILITY_EXCLUSIONS = new Set<string>();
 
 export function isRoutedModelCompatibilityExcluded(slug: string): boolean {
   return ROUTED_MODEL_COMPATIBILITY_EXCLUSIONS.has(slug);
@@ -191,6 +186,10 @@ function isGeminiImageChatModel(id: string): boolean {
 }
 
 export function shouldExposeRoutedModel(model: CatalogModel): boolean {
+  // OpenCode Go's raw roster is broader than the set the OpenCode team explicitly tests and
+  // publishes with a supported endpoint. Treat the curated map as compatibility authority and
+  // live `/models` only as availability evidence.
+  if (model.provider === "opencode-go" && !isCuratedOpenCodeGoModel(model.id)) return false;
   if (isRoutedModelCompatibilityExcluded(`${model.provider}/${model.id}`)) return false;
   if (isGeminiImageChatModel(model.id)) return true;
   return !isMediaGenerationModelId(model.id);
@@ -524,7 +523,7 @@ export function catalogEntryIsNativeChatGpt(entry: RawEntry): boolean {
   if (
     entry.opencodex_catalog_kind === CODEX_CUSTOM_MODEL_CATALOG_KIND
     && entry.use_responses_lite === true
-    && isNativeOpenAiCapabilityAliasModel(routedNativeSlug)
+    && hasNativeOpenAiCapabilityMetadata(routedNativeSlug)
   ) return true;
   if (UPSTREAM_NATIVE_ENTRIES.has(slug) || SUPPORTED_NATIVE_OPENAI_SLUGS.has(slug)) return true;
   return false;
@@ -582,7 +581,7 @@ export function applyMultiAgentMode(
         : "";
       const codexForwardCapabilityAlias = entry.opencodex_catalog_kind === CODEX_CUSTOM_MODEL_CATALOG_KIND
         && entry.use_responses_lite === true
-        && isNativeOpenAiCapabilityAliasModel(routedNativeSlug)
+        && hasNativeOpenAiCapabilityMetadata(routedNativeSlug)
         ? routedNativeSlug
         : undefined;
       const upstreamPin = nativeAlias
@@ -625,6 +624,7 @@ export function normalizeRoutedCatalogEntry(
   // Explicit provider/model metadata is re-applied after this normalization step.
   delete entry.supports_reasoning_summaries;
   const isCursorEntry = typeof entry.slug === "string" && entry.slug.startsWith("cursor/");
+  const isOpenCodeGoEntry = typeof entry.slug === "string" && entry.slug.startsWith("opencode-go/");
   // `supports_search_tool` selects Codex's deferred tool-discovery surface; it is not the hosted
   // web-search capability. Routed rows also carry tool_mode=code_mode_only (below), and under code
   // mode DEFERRED MCP tools remain callable through exec's `tools` global / ALL_TOOLS without any
@@ -632,9 +632,11 @@ export function normalizeRoutedCatalogEntry(
   // kimi/k3 called tools.mcp__node_repl__js → isError:false). Stamping false here instead forces
   // every MCP declaration into exec.description — a measured 2.7x turn-1 payload regression
   // (96,699 → 258,929 chars; devlog/_plan/260813_tool_catalog_deferral/010). So every routed
-  // code-mode row advertises deferred discovery. Cursor still omits hosted web-search metadata below,
-  // but disabling this separate exposure bit can inflate `exec` past Cursor's 120 KB wire cap (#1830).
-  if (isCursorEntry) {
+  // code-mode row advertises deferred discovery. Cursor and OpenCode Go omit hosted web-search
+  // metadata below for separate reasons: Cursor bypasses the sidecar, while OpenCode Go delegates
+  // search exclusively to Codex standalone `web.run` and must fail closed when that is unavailable.
+  // Disabling this separate exposure bit can still inflate `exec` past Cursor's 120 KB wire cap (#1830).
+  if (isCursorEntry || isOpenCodeGoEntry) {
     delete entry.web_search_tool_type;
   } else {
     entry.web_search_tool_type = "text_and_image";

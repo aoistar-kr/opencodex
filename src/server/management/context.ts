@@ -16,6 +16,7 @@ import type {
   performCodexRestart,
   readCodexAppServerState,
 } from "../../codex/app-server-restart-service";
+import type { collectCodexAppServerCatalogState } from "../../codex/app-server-processes";
 
 export interface ManagementApiDeps {
   /** Platform seam for capability projections; does not alter host-level startup behavior. */
@@ -41,6 +42,8 @@ export interface ManagementApiDeps {
    * Tests stub it to orphan the fixture file mid-fetch (the r7 recheck test).
    */
   fetchAllModels?: (config: OcxConfig) => Promise<CatalogModel[]>;
+  /** Read-only app-server catalog-state seam keeps route tests off the developer's live process table. */
+  collectCodexAppServerCatalogState?: typeof collectCodexAppServerCatalogState;
   /**
    * Writer seam for the Grok toggle: lets a test place the file in any state
    * between the pre-write recheck and the write itself (the r8 post-inspection

@@ -31,6 +31,11 @@ export function namespacedToolName(namespace: string | undefined, name: string):
   return namespace ? `${namespace}__${name}` : name;
 }
 
+/** Alternate spelling some Responses gateways echo for a namespaced tool. */
+export function dottedToolName(namespace: string | undefined, name: string): string {
+  return namespace ? `${namespace}.${name}` : name;
+}
+
 /**
  * Codex unified-exec name normalization.
  *
@@ -72,7 +77,7 @@ export function normalizeDeclaredToolName(
 
 export function toolChoiceAliases(tool: Pick<OcxTool, "namespace" | "name">): string[] {
   const wireName = namespacedToolName(tool.namespace, tool.name);
-  return tool.namespace ? [wireName, `${tool.namespace}.${tool.name}`] : [wireName];
+  return tool.namespace ? [wireName, dottedToolName(tool.namespace, tool.name)] : [wireName];
 }
 
 function sameToolIdentity(

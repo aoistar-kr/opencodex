@@ -324,6 +324,22 @@ requires_openai_auth = true
 env_key = "OPENCODEX_API_AUTH_TOKEN"
 ```
 
+Codex standalone `web.run` is capability-gated rather than version-guessed. Injection performs the
+read-only installed-runtime probe `codex features list`; only when that registry contains a usable
+`standalone_web_search` entry may OpenCodex add marker-owned
+`features.standalone_web_search = true` and, for the custom-provider form,
+`supports_standalone_web_search = true`. Missing/removed rows and probe failures fail closed and
+remove only a prior marker-owned opt-in. Explicit user feature values and the root `web_search`
+mode remain authoritative. The generated fallback profile mirrors the feature only when the
+installed runtime proved it, and preserves an explicit user `false`.
+
+Codex 0.153.4 owns `web.run` out of band, so the Responses request can omit it from `tools[]` even
+though a routed model later emits the flattened client-tool name `web__run`. Runtime authorization
+admits only that exact name when the resolved provider is `opencode-go`, `originator` is an exact
+known Codex surface, and active Codex config has `standalone_web_search = true`; provider/originator/
+config mismatch or read/parse failure authorizes nothing. This exception widens neither the model's
+outbound tool catalog nor the general undeclared-tool guard.
+
 Root TOML keys must be written before the first `[table]`. Re-injection strips the stale form of
 both shapes — opencodex blocks, injected root base-url overrides, stale root context-window
 overrides, and stale catalog paths — before rewriting, so switching between forms leaves no residue.

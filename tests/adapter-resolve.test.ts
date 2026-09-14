@@ -152,6 +152,36 @@ describe("registry per-model wire defaults", () => {
       .toBe("openai-chat");
   });
 
+  test("routes OpenCode Go documented Responses models through Responses only", () => {
+    const provider = gateway({ baseUrl: "https://opencode.ai/zen/go/v1" });
+    for (const model of ["grok-4.6", "gpt-5.6-luna", "muse-spark-1.2-contributor", "muse-spark-1.3-contributor"]) {
+      expect(resolveWireProtocolOverride("opencode-go", model, provider, "responses").adapter)
+        .toBe("openai-responses");
+    }
+    expect(resolveWireProtocolOverride("opencode-go", "glm-5.3", provider, "responses").adapter)
+      .toBe("openai-chat");
+  });
+
+  test("hard-pins all documented OpenCode Go Anthropic models", () => {
+    const provider = gateway({ baseUrl: "https://opencode.ai/zen/go/v1" });
+    for (const model of [
+      "minimax-m3", "minimax-m2.7", "minimax-m2.5",
+      "qwen3.8-max", "qwen3.8-flash", "qwen3.7-max", "qwen3.7-plus", "qwen3.6-plus",
+    ]) {
+      expect(resolveWireProtocolOverride("opencode-go", model, provider, "responses").adapter)
+        .toBe("anthropic");
+    }
+  });
+
+  test("an explicit OpenCode Go Chat override can opt Muse Spark 1.3 out of the registry default", () => {
+    const provider = gateway({
+      baseUrl: "https://opencode.ai/zen/go/v1",
+      modelAdapters: { "muse-spark-1.3-contributor": "openai-chat" },
+    });
+    expect(resolveWireProtocolOverride("opencode-go", "muse-spark-1.3-contributor", provider, "responses").adapter)
+      .toBe("openai-chat");
+  });
+
   test("defaults do not apply when the provider is already on another wire", () => {
     expect(resolveWireProtocolOverride("deepseek", "deepseek-v4-flash", deepseek({ adapter: "anthropic" })).adapter)
       .toBe("anthropic");

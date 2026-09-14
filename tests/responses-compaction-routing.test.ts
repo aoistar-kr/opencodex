@@ -28,6 +28,7 @@ import {
 } from "../src/codex/auth-context";
 import { clearUpstreamHostHealth } from "../src/codex/upstream-host-health";
 import { supportsNativeResponsesCompactEndpoint } from "../src/providers/openai-tiers";
+import { decodeHybridCompaction } from "../src/responses/compaction";
 import type { RequestLogContext } from "../src/server/request-log";
 import { acquireNativeMainProfileDrain, tryAdmitTurn } from "../src/server/lifecycle";
 import type { OcxConfig, OcxProviderConfig } from "../src/types";
@@ -308,6 +309,157 @@ describe("Codex auth-context error parity (#2392)", () => {
 });
 
 describe("native compact usage reporting", () => {
+  test("portable shadow reuses the same pooled Codex account that minted the native compact blob", async () => {
+    const testDir = mkdtempSync(join(tmpdir(), "ocx-compact-shadow-account-"));
+    const previousOpencodexHome = process.env.OPENCODEX_HOME;
+    const previousCodexHome = process.env.CODEX_HOME;
+    process.env.OPENCODEX_HOME = testDir;
+    process.env.CODEX_HOME = testDir;
+    try {
+      const config = nativePoolConfig();
+      saveCodexAccountCredential("pool-a", {
+        accessToken: "access-token-shadow-account",
+        refreshToken: "refresh-token-shadow-account",
+        expiresAt: Date.now() + 300_000,
+        chatgptAccountId: "pool_acc",
+      });
+      updateAccountQuota("pool-a", 0);
+
+      const calls: Array<{ url: string; account: string | null }> = [];
+      globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+        const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+        calls.push({ url, account: headers.get("chatgpt-account-id") });
+        if (url.endsWith("/responses/compact")) {
+          return jsonResponse({
+            output: [{ type: "compaction", id: "cmp_native", encrypted_content: "gAAAAA-pooled-native-state" }],
+          });
+        }
+        return sseResponse([{
+          type: "response.completed",
+          response: completedPayload("pooled portable checkpoint"),
+        }]);
+      }) as typeof fetch;
+
+      const response = await handleResponsesCompact(
+        compactionRequest(
+          baseCompactionBody({ model: "gpt-5.5" }),
+          undefined,
+          { "thread-id": "thread-shadow-same-account" },
+        ),
+        config,
+        { model: "", provider: "" },
+      );
+      expect(response.status).toBe(200);
+      expect(calls).toHaveLength(2);
+      expect(calls[0]?.url).toEndWith("/responses/compact");
+      expect(calls[1]?.url).toEndWith("/responses");
+      expect(calls[0]?.account).toBe("pool_acc");
+      expect(calls[1]?.account).toBe("pool_acc");
+      const json = await response.json() as { output: Array<{ encrypted_content?: string }> };
+      const hybrid = decodeHybridCompaction(json.output[0]?.encrypted_content ?? "");
+      expect(hybrid).toMatchObject({
+        native: "gAAAAA-pooled-native-state",
+        summary: "pooled portable checkpoint",
+      });
+      expect(hybrid?.origin).toMatch(/^[0-9a-f]{64}$/);
+    } finally {
+      globalThis.fetch = originalFetch;
+      clearAccountQuota();
+      clearCodexUpstreamHealth();
+      rmSync(testDir, { recursive: true, force: true });
+      if (previousOpencodexHome === undefined) delete process.env.OPENCODEX_HOME;
+      else process.env.OPENCODEX_HOME = previousOpencodexHome;
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+    }
+  });
+
+  test("native compact attaches a portable shadow while preserving the original native blob", async () => {
+    const config = {
+      defaultProvider: "openai-apikey",
+      providers: {
+        "openai-apikey": {
+          adapter: "openai-responses",
+          baseUrl: "https://api.openai.com/v1",
+          authMode: "key",
+          apiKey: "test-key",
+        },
+      },
+    } as unknown as OcxConfig;
+    const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+      calls.push({ url, body });
+      if (url.endsWith("/responses/compact")) {
+        return jsonResponse({
+          output: [{ type: "compaction", id: "cmp_native", encrypted_content: "gAAAAA-native-state" }],
+          usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+        });
+      }
+      return sseResponse([{
+        type: "response.completed",
+        response: completedPayload("portable checkpoint"),
+      }]);
+    }) as typeof fetch;
+
+    const response = await handleResponsesCompact(
+      compactionRequest(baseCompactionBody({ model: "openai-apikey/gpt-5.5" })),
+      config,
+      { model: "", provider: "" },
+    );
+    expect(response.status).toBe(200);
+    const json = await response.json() as { output: Array<{ encrypted_content?: string }> };
+    const hybrid = decodeHybridCompaction(json.output[0]?.encrypted_content ?? "");
+    expect(hybrid).toMatchObject({
+      native: "gAAAAA-native-state",
+      summary: "portable checkpoint",
+    });
+    expect(hybrid?.origin).toMatch(/^[0-9a-f]{64}$/);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]!.url).toEndWith("/responses/compact");
+    expect(calls[1]!.url).toEndWith("/responses");
+    expect(calls[1]!.body.store).toBe(false);
+    expect(calls[1]!.body.tools).toEqual([]);
+    const shadowInput = calls[1]!.body.input as Array<Record<string, unknown>>;
+    expect(shadowInput[0]?.encrypted_content).toBe("gAAAAA-native-state");
+  });
+
+  test("portable-shadow failure is fail-soft and leaves native compact state untouched", async () => {
+    const config = {
+      defaultProvider: "openai-apikey",
+      providers: {
+        "openai-apikey": {
+          adapter: "openai-responses",
+          baseUrl: "https://api.openai.com/v1",
+          authMode: "key",
+          apiKey: "test-key",
+        },
+      },
+    } as unknown as OcxConfig;
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.endsWith("/responses/compact")) {
+        return jsonResponse({
+          output: [{ type: "compaction", id: "cmp_native", encrypted_content: "gAAAAA-native-state" }],
+        });
+      }
+      return new Response(JSON.stringify({ error: { message: "shadow rejected" } }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    const response = await handleResponsesCompact(
+      compactionRequest(baseCompactionBody({ model: "openai-apikey/gpt-5.5" })),
+      config,
+      { model: "", provider: "" },
+    );
+    const json = await response.json() as { output: Array<{ encrypted_content?: string }> };
+    expect(json.output[0]?.encrypted_content).toBe("gAAAAA-native-state");
+  });
+
   test("the buffered upstream body fills the request log usage and stays intact for the client", async () => {
     const config = {
       defaultProvider: "openai-apikey",
@@ -834,6 +986,51 @@ describe("compact alternate-account attempt (#913)", () => {
       expect(observedUrl).toBe("https://chatgpt.com/backend-api/codex/responses/compact");
       expect(observedHeaders.get("authorization")).toBe("Bearer pool-a-access-token");
       expect(observedHeaders.get("chatgpt-account-id")).toBe("pool_acc_a");
+    });
+  });
+
+  test("portable shadow stays on the alternate account that minted the native compact blob", async () => {
+    await withPoolEnv("ocx-compact-alt-shadow-owner-", async config => {
+      const calls: Array<{ url: string; account: string | null }> = [];
+      globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+        const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+        calls.push({ url, account: headers.get("chatgpt-account-id") });
+        if (calls.length === 1) {
+          return Response.json({ error: { message: "pool a exhausted" } }, { status: 429 });
+        }
+        if (url.endsWith("/responses/compact")) {
+          return jsonResponse({
+            output: [{ type: "compaction", id: "cmp_alt_native", encrypted_content: "gAAAAA-alt-native-state" }],
+          });
+        }
+        if (url.endsWith("/responses")) {
+          return sseResponse([{
+            type: "response.completed",
+            response: completedPayload("alternate portable checkpoint"),
+          }]);
+        }
+        throw new Error(`unexpected shadow URL: ${url}`);
+      }) as typeof fetch;
+
+      const response = await handleResponsesCompact(
+        compactionRequest(baseCompactionBody({})),
+        config,
+        { model: "", provider: "" },
+      );
+
+      expect(response.status).toBe(200);
+      expect(calls.map(call => call.account)).toEqual(["pool_acc_a", "pool_acc_b", "pool_acc_b"]);
+      expect(calls[0]?.url).toEndWith("/responses/compact");
+      expect(calls[1]?.url).toEndWith("/responses/compact");
+      expect(calls[2]?.url).toEndWith("/responses");
+      const json = await response.json() as { output: Array<{ encrypted_content?: string }> };
+      const hybrid = decodeHybridCompaction(json.output[0]?.encrypted_content ?? "");
+      expect(hybrid).toMatchObject({
+        native: "gAAAAA-alt-native-state",
+        summary: "alternate portable checkpoint",
+      });
+      expect(hybrid?.origin).toMatch(/^[0-9a-f]{64}$/);
     });
   });
 

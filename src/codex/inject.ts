@@ -1,4 +1,7 @@
-import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   atomicWriteFile,
   loadConfig,
@@ -69,11 +72,13 @@ import {
   tomlString,
 } from "./paths";
 import { resolveEffectiveProjectModelProvider } from "./project-config-warnings";
+import { resolveCodexRuntime } from "./runtime";
 import {
   transformManagedSubagentDefaults,
   type ManagedSubagentDefaults,
 } from "./subagent-defaults";
 import type { OcxConfig } from "../types";
+import { commandInvocation } from "../lib/win-exec";
 
 // Ownership predicates live in `./injected-marker` so `journal.ts` can reach them
 // without importing this module back. Re-exported for existing external callers.
@@ -119,6 +124,14 @@ export function applyEol(content: string, eol: "\r\n" | "\n"): string {
  * built-in provider cannot carry the `x-opencodex-api-key` env header.
  */
 
+export interface StandaloneWebSearchCapabilityProbeDeps {
+  /** Resolve the Codex runtime OpenCodex would actually launch. Injected by tests. */
+  resolveRuntime?: () => { command: string; version: string | null };
+  /** Read `codex features list` output without changing Codex config. Injected by tests. */
+  runFeaturesList?: (command: string) => string;
+  now?: () => number;
+}
+
 export interface InjectCodexOptions {
   /**
    * Absolute or CODEX_HOME-relative catalog path to advertise to Codex. Pass `null` only when the
@@ -139,6 +152,8 @@ export interface InjectCodexOptions {
    * provider discovery so a deterministic config refusal cannot degrade an existing catalog.
    */
   validateOnly?: boolean;
+  /** Test seam for the read-only installed-Codex feature-registry probe. */
+  standaloneWebSearchCapabilityProbe?: () => boolean;
 }
 
 function configuredManagedSubagentDefaults(
@@ -216,6 +231,7 @@ export function buildProviderTableBlock(
   supportsWebsockets = false,
   includeApiAuthHeader = false,
   hostname?: string,
+  supportsStandaloneWebSearch = false,
 ): string {
   const host = providerBaseHost(hostname);
   const lines = [
@@ -227,6 +243,12 @@ export function buildProviderTableBlock(
     'wire_api = "responses"',
     "requires_openai_auth = true",
   ];
+  if (supportsStandaloneWebSearch) {
+    // Codex 0.152+ gates its first-party standalone `web.run` surface on this custom-provider
+    // capability. Only emit it after the installed runtime's feature registry proves the
+    // standalone feature exists; older/unknown runtimes stay fail-closed.
+    lines.push("supports_standalone_web_search = true");
+  }
   if (includeApiAuthHeader) {
     // codex-cli 0.146+ contract (#2073): env_key sends Authorization: Bearer $VAR and
     // hard-errors on a missing/empty variable instead of silently omitting auth. It
@@ -284,6 +306,16 @@ export function setRootOpenaiBaseUrl(
     };
   }
   let insertAt = firstTable;
+  // Keep marker-owned table comments attached to the table they own. A re-inject first strips
+  // our root openai_base_url pair, leaving the managed standalone-search table marker directly
+  // above `[features]`; inserting at the raw table index would split that ownership pair and
+  // make the second inject byte-different from the first.
+  if (
+    insertAt > 0
+    && lines[insertAt - 1] === MANAGED_STANDALONE_WEB_SEARCH_TABLE_MARKER
+  ) {
+    insertAt--;
+  }
   while (insertAt > 0 && lines[insertAt - 1].trim() === "") insertAt--;
   lines.splice(insertAt, 0, OCX_SECTION_MARKER, key);
   return { content: lines.join("\n"), keptUserBaseUrl: false };
@@ -601,6 +633,225 @@ function ensureFastModeFeature(content: string, fastMode?: boolean): string {
   return lines.join("\n");
 }
 
+const STANDALONE_WEB_SEARCH_CAPABILITY_TTL_MS = 5 * 60_000;
+let standaloneWebSearchCapabilityMemo:
+  | { key: string; observedAt: number; supported: boolean }
+  | null = null;
+
+/**
+ * Parse one installed Codex feature-registry listing. Presence is capability; the trailing
+ * true/false column is only the user's current enablement state. Removed entries are not usable.
+ */
+export function codexFeatureRegistrySupports(output: string, feature: string): boolean {
+  for (const rawLine of String(output).split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const match = /^(\S+)\s+(.+?)\s+(true|false)$/i.exec(line);
+    if (!match || match[1] !== feature) continue;
+    return match[2]!.trim().toLowerCase() !== "removed";
+  }
+  return false;
+}
+
+function runCodexFeaturesListReadOnly(command: string): string {
+  let probeHome: string | undefined;
+  try {
+    // Codex may create logs/tmp state even for informational commands. Point the read-only
+    // registry inspection at a throwaway home so the user's real CODEX_HOME is never dirtied.
+    probeHome = mkdtempSync(join(tmpdir(), "ocx-codex-feature-probe-"));
+    const inv = commandInvocation(command, ["features", "list"]);
+    return execFileSync(inv.file, inv.args, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 5_000,
+      windowsHide: true,
+      env: { ...process.env, CODEX_HOME: probeHome },
+      ...inv.options,
+    });
+  } finally {
+    if (probeHome) {
+      try { rmSync(probeHome, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
+  }
+}
+
+/**
+ * Read-only capability gate for Codex's first-party standalone `web.run` feature.
+ *
+ * The probe intentionally executes `features list`, never `features enable`: config mutation stays
+ * inside OpenCodex's journaled injector. Unknown runtimes, absent rows, malformed output, timeout,
+ * and every launch failure return false. Production results are memoized by resolved runtime path
+ * and version so sync preflight + apply do not repeatedly spawn Codex during one startup.
+ */
+export function probeInstalledCodexStandaloneWebSearch(
+  deps: StandaloneWebSearchCapabilityProbeDeps = {},
+): boolean {
+  const now = (deps.now ?? Date.now)();
+  const cacheable = !deps.resolveRuntime && !deps.runFeaturesList && !deps.now;
+  let cacheKey: string | null = null;
+  try {
+    const runtime = deps.resolveRuntime
+      ? deps.resolveRuntime()
+      : resolveCodexRuntime({ discoverAlternatives: false }).runtime;
+    if (!runtime.command) return false;
+
+    const key = `${runtime.command}\u0000${runtime.version ?? ""}`;
+    cacheKey = key;
+    if (
+      cacheable
+      && standaloneWebSearchCapabilityMemo?.key === key
+      && now - standaloneWebSearchCapabilityMemo.observedAt < STANDALONE_WEB_SEARCH_CAPABILITY_TTL_MS
+    ) {
+      return standaloneWebSearchCapabilityMemo.supported;
+    }
+
+    const output = (deps.runFeaturesList ?? runCodexFeaturesListReadOnly)(runtime.command);
+    const supported = codexFeatureRegistrySupports(output, "standalone_web_search");
+    if (cacheable) {
+      standaloneWebSearchCapabilityMemo = { key, observedAt: now, supported };
+    }
+    return supported;
+  } catch {
+    if (cacheable && cacheKey) {
+      // Preflight and apply call the same injector. Memoize a failed read-only probe too so an
+      // unavailable/old Codex cannot charge the timeout twice during one startup.
+      standaloneWebSearchCapabilityMemo = { key: cacheKey, observedAt: now, supported: false };
+    }
+    return false;
+  }
+}
+
+/** Test-only: clear the process-local installed-Codex capability memo. */
+export function resetStandaloneWebSearchCapabilityProbeForTests(): void {
+  standaloneWebSearchCapabilityMemo = null;
+}
+
+export const MANAGED_STANDALONE_WEB_SEARCH_MARKER =
+  "# Managed by opencodex: Codex standalone web search";
+export const MANAGED_STANDALONE_WEB_SEARCH_TABLE_MARKER =
+  "# Managed by opencodex: Codex standalone web search features table";
+
+const FEATURES_TABLE_HEADER = /^\s*\[(["']?)\s*features\s*\1\]\s*(?:#.*)?$/;
+const STANDALONE_WEB_SEARCH_KEY =
+  /^\s*(?:"standalone_web_search"|'standalone_web_search'|standalone_web_search)\s*=/;
+const STANDALONE_WEB_SEARCH_BOOLEAN =
+  /^\s*(?:"standalone_web_search"|'standalone_web_search'|standalone_web_search)\s*=\s*(true|false)\s*(?:#.*)?$/;
+
+export function standaloneWebSearchFeatureSetting(content: string): boolean | undefined {
+  const lines = content.split("\n");
+  const featuresStart = lines.findIndex(line => FEATURES_TABLE_HEADER.test(line));
+  if (featuresStart === -1) return undefined;
+  const nextTable = lines.findIndex(
+    (line, index) => index > featuresStart && /^\s*\[/.test(line),
+  );
+  const featuresEnd = nextTable === -1 ? lines.length : nextTable;
+  for (let i = featuresStart + 1; i < featuresEnd; i++) {
+    const match = STANDALONE_WEB_SEARCH_BOOLEAN.exec(lines[i]);
+    if (match) return match[1] === "true";
+  }
+  return undefined;
+}
+
+/**
+ * Codex 0.152+ keeps standalone `web.run` behind an under-development feature flag. OpenCodex
+ * enables that flag only when the user has not already made an explicit choice. In particular,
+ * an explicit `standalone_web_search = false` remains authoritative. The separate top-level
+ * `web_search` mode is intentionally untouched: Codex itself uses it to preserve live/cached/
+ * disabled network policy for the standalone tool.
+ *
+ * Our inserted key is marker-owned so fallback cleanup can remove it without deleting an
+ * unmarked user setting. If the user edits our owned key to `false`, the marker is detached and
+ * the false value becomes user-owned immediately.
+ */
+export function ensureManagedStandaloneWebSearchFeature(content: string): string {
+  const lines = content.split("\n");
+  const featuresStart = lines.findIndex(line => FEATURES_TABLE_HEADER.test(line));
+  if (featuresStart === -1) {
+    return (
+      content.trimEnd()
+      + "\n\n"
+      + MANAGED_STANDALONE_WEB_SEARCH_TABLE_MARKER
+      + "\n[features]\n"
+      + MANAGED_STANDALONE_WEB_SEARCH_MARKER
+      + "\nstandalone_web_search = true\n"
+    );
+  }
+
+  const nextTable = lines.findIndex(
+    (line, index) => index > featuresStart && /^\s*\[/.test(line),
+  );
+  const featuresEnd = nextTable === -1 ? lines.length : nextTable;
+  for (let i = featuresStart + 1; i < featuresEnd; i++) {
+    if (!STANDALONE_WEB_SEARCH_KEY.test(lines[i])) continue;
+    if (i > 0 && lines[i - 1] === MANAGED_STANDALONE_WEB_SEARCH_MARKER) {
+      if (STANDALONE_WEB_SEARCH_BOOLEAN.exec(lines[i])?.[1] === "true") return lines.join("\n");
+      // A user editing the managed value to false/malformed is an explicit override. Keep the
+      // assignment and release ownership rather than re-forcing true on the next sync.
+      lines.splice(i - 1, 1);
+      if (
+        featuresStart > 0
+        && lines[featuresStart - 1] === MANAGED_STANDALONE_WEB_SEARCH_TABLE_MARKER
+      ) {
+        lines.splice(featuresStart - 1, 1);
+      }
+      return lines.join("\n");
+    }
+    return lines.join("\n");
+  }
+
+  let insertAt = featuresEnd;
+  while (insertAt > featuresStart + 1 && lines[insertAt - 1].trim() === "") insertAt--;
+  lines.splice(
+    insertAt,
+    0,
+    MANAGED_STANDALONE_WEB_SEARCH_MARKER,
+    "standalone_web_search = true",
+  );
+  return lines.join("\n");
+}
+
+/** Remove only marker-owned standalone-search config, preserving every explicit user value. */
+export function stripManagedStandaloneWebSearchFeature(content: string): string {
+  const lines = content.split("\n");
+
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i] !== MANAGED_STANDALONE_WEB_SEARCH_MARKER) continue;
+    const next = lines[i + 1];
+    if (next !== undefined && STANDALONE_WEB_SEARCH_BOOLEAN.exec(next)?.[1] === "true") {
+      lines.splice(i, 2);
+    } else {
+      // Orphaned markers and markers above an explicit false/malformed value are ours; the value
+      // is not. Drop only the ownership comment.
+      lines.splice(i, 1);
+    }
+  }
+
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i] !== MANAGED_STANDALONE_WEB_SEARCH_TABLE_MARKER) continue;
+    const headerIndex = i + 1;
+    if (headerIndex >= lines.length || !FEATURES_TABLE_HEADER.test(lines[headerIndex])) {
+      lines.splice(i, 1);
+      continue;
+    }
+    const nextTable = lines.findIndex(
+      (line, index) => index > headerIndex && /^\s*\[/.test(line),
+    );
+    const end = nextTable === -1 ? lines.length : nextTable;
+    const sectionHasUserContent = lines
+      .slice(headerIndex + 1, end)
+      .some(line => line.trim() !== "");
+    if (sectionHasUserContent) {
+      // The table started as ours but now contains user material. Keep the table and relinquish
+      // ownership instead of deleting anything the user added.
+      lines.splice(i, 1);
+      continue;
+    }
+    lines.splice(i, end - i);
+  }
+
+  return lines.join("\n");
+}
+
 function isOpencodexCatalogPath(path: string): boolean {
   return path.replace(/\\/g, "/").split("/").pop() === "opencodex-catalog.json";
 }
@@ -619,8 +870,25 @@ function stripOpencodexCatalogPath(content: string): string {
     .join("\n");
 }
 
-export function buildProfileFile(port: number, catalogPath?: string | null, supportsWebsockets = false, includeApiAuthHeader = false, hostname?: string, fastMode?: boolean): string {
+export function buildProfileFile(
+  port: number,
+  catalogPath?: string | null,
+  supportsWebsockets = false,
+  includeApiAuthHeader = false,
+  hostname?: string,
+  fastMode?: boolean,
+  supportsStandaloneWebSearch = false,
+  standaloneWebSearchEnabled: boolean | undefined = supportsStandaloneWebSearch ? true : undefined,
+): string {
   const host = providerBaseHost(hostname);
+  const appendFeatures = (lines: string[]): void => {
+    const featureLines: string[] = [];
+    if (fastMode !== undefined) featureLines.push(`fast_mode = ${fastMode ? "true" : "false"}`);
+    if (standaloneWebSearchEnabled !== undefined) {
+      featureLines.push(`standalone_web_search = ${standaloneWebSearchEnabled ? "true" : "false"}`);
+    }
+    if (featureLines.length > 0) lines.push("", "[features]", ...featureLines, "");
+  };
   // Design B (loopback): the reference/fallback file documents the root override form.
   // Non-loopback keeps the legacy provider-table shape (built-in provider cannot carry
   // the x-opencodex-api-key env header).
@@ -632,7 +900,7 @@ export function buildProfileFile(port: number, catalogPath?: string | null, supp
       buildOpenaiBaseUrlLine(port, hostname),
     ];
     if (catalogPath) lines.push(`model_catalog_json = ${tomlString(catalogPath)}`);
-    if (fastMode !== undefined) lines.push("", "[features]", `fast_mode = ${fastMode ? "true" : "false"}`, "");
+    appendFeatures(lines);
     return lines.join("\n");
   }
   const lines = [
@@ -641,8 +909,17 @@ export function buildProfileFile(port: number, catalogPath?: string | null, supp
     'model_provider = "opencodex"',
   ];
   if (catalogPath) lines.push(`model_catalog_json = ${tomlString(catalogPath)}`);
-  if (fastMode !== undefined) lines.push("", "[features]", `fast_mode = ${fastMode ? "true" : "false"}`);
-  lines.push(buildProviderTableBlock(port, supportsWebsockets, includeApiAuthHeader, hostname).trimEnd(), "");
+  appendFeatures(lines);
+  lines.push(
+    buildProviderTableBlock(
+      port,
+      supportsWebsockets,
+      includeApiAuthHeader,
+      hostname,
+      supportsStandaloneWebSearch,
+    ).trimEnd(),
+    "",
+  );
   return lines.join("\n");
 }
 
@@ -736,6 +1013,7 @@ export async function injectCodexConfig(
     };
   }
   const baselineContent = nativeDefaultsBaseline.content;
+  const userStandaloneWebSearchSetting = standaloneWebSearchFeatureSetting(baselineContent);
 
   /*
    * The journal write used to happen HERE, before the transforms. It now happens
@@ -782,6 +1060,13 @@ export async function injectCodexConfig(
     : stripOpencodexCatalogPath(content);
 
   const legacyMode = shouldInjectApiAuthHeader(config);
+  const standaloneWebSearchSupported = (
+    options.standaloneWebSearchCapabilityProbe
+    ?? probeInstalledCodexStandaloneWebSearch
+  )();
+  const profileStandaloneWebSearchEnabled = standaloneWebSearchSupported
+    ? userStandaloneWebSearchSetting === false ? false : true
+    : undefined;
   let keptUserBaseUrl = false;
   if (legacyMode) {
     // Legacy (non-loopback) injection: the built-in openai provider cannot carry the
@@ -797,6 +1082,7 @@ export async function injectCodexConfig(
         websocketsEnabled(config ?? {}),
         true,
         config?.hostname,
+        standaloneWebSearchSupported,
       );
   } else {
     // Design B (loopback): a single root override; codex keeps its native `openai` provider id
@@ -806,6 +1092,13 @@ export async function injectCodexConfig(
     content = result.content;
     keptUserBaseUrl = result.keptUserBaseUrl;
   }
+
+  // Standalone `web.run` is an OpenCodex-managed capability only while OpenCodex owns the active
+  // Codex route and the installed runtime proves the feature exists. Unsupported/probe-failed
+  // runtimes remove only our old marker-owned opt-in; explicit user true/false values survive.
+  content = standaloneWebSearchSupported && (legacyMode || !keptUserBaseUrl)
+    ? ensureManagedStandaloneWebSearchFeature(content)
+    : stripManagedStandaloneWebSearchFeature(content);
 
   const desiredSubagentDefaults = configuredManagedSubagentDefaults(config);
   const routingOwnershipWarning =
@@ -838,7 +1131,16 @@ export async function injectCodexConfig(
     managedDefaultsMessage = `  ⚠️ ${nativeSubagentDefaultsWarning}\n`;
   }
 
-  const profileContent = buildProfileFile(port, catalogPath, websocketsEnabled(config ?? {}), legacyMode, config?.hostname, config?.fastMode);
+  const profileContent = buildProfileFile(
+    port,
+    catalogPath,
+    websocketsEnabled(config ?? {}),
+    legacyMode,
+    config?.hostname,
+    config?.fastMode,
+    standaloneWebSearchSupported,
+    profileStandaloneWebSearchEnabled,
+  );
   content = applyEol(content, eol);
 
   /*
@@ -1231,6 +1533,7 @@ function stripOpencodexConfigResult(
   // Routed root model ids (`model = "provider/slug"`) only make sense while the proxy serves
   // them — strip on both the legacy re-tag form and the Design B injected-base-url form.
   if (hadRootOcxProvider || hadInjectedBaseUrl) out = stripRootRoutedModel(out);
+  out = stripManagedStandaloneWebSearchFeature(out);
   const managedDefaults = transformManagedSubagentDefaults(out, null);
   if (managedDefaults.ok) out = managedDefaults.content;
   out = stripOpencodexCatalogPath(out);

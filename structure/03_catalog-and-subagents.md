@@ -243,9 +243,16 @@ kimi/k3 executed `tools.mcp__node_repl__js`, devlog `260813_tool_catalog_deferra
 Stamping `false` instead forces every MCP declaration into `exec.description` — a measured 2.7x
 turn-1 payload regression (96,699 → 258,929 chars). For Cursor this can also make the unified
 `exec` exceed the 120,000-byte serialized `McpTools` ceiling; the budget then drops `exec` and
-its companion `wait` (#1830). Hosted search remains independent: non-Cursor routes keep
-`web_search_tool_type: "text_and_image"`, while Cursor omits it because runTurn bypasses the
-search sidecar.
+its companion `wait` (#1830). Hosted search remains independent: ordinary routed providers keep
+`web_search_tool_type: "text_and_image"`; Cursor omits it because runTurn bypasses the search
+sidecar, and OpenCode Go omits it because search is owned exclusively by Codex standalone
+`web.run`. If that Codex feature is unsupported or explicitly disabled, OpenCode Go search fails
+closed rather than falling through to heterogeneous model-hosted search semantics.
+
+For OpenCode Go, Codex's standalone tool is also absent from the request `tools[]` catalog. The
+request path therefore admits only the exact flattened `web__run` name when OpenCode Go routing,
+an exact known Codex `originator`, and active `standalone_web_search = true` all agree. This is
+client-tool authority, not hosted-search capability, and no other undeclared tool is authorized.
 
 [Decision Log]
 - 목적과 의도: keep routed plugin/MCP tools reachable without paying the full-catalog turn-1 payload tax or starving Cursor's unified execution bridge.

@@ -35,7 +35,7 @@ import upstreamModelsSnapshot from "../data/upstream-models.json";
 import { generatedModelMetadata, readCatalog, readCodexCatalogPath } from "./parsing";
 import type { CatalogModel, RawEntry } from "./parsing";
 import { UPSTREAM_NATIVE_ENTRIES } from "./metadata";
-import { nativeOpenAiCapabilitySourceSlug } from "./native-models";
+import { nativeOpenAiCapabilitySourceSlug, SELF_DESCRIBED_NATIVE_OPENAI_MODELS } from "./native-models";
 import { loadBundledCodexCatalog } from "./bundled";
 import type { BundledCatalogDeps, ReadonlyRawCatalog } from "./bundled";
 import { deriveEntry } from "./sync";
@@ -259,7 +259,9 @@ export function applyReasoningLevels(
 }
 
 export function isGpt56NativeSlug(slug: string): boolean {
-  return !slug.includes("/") && nativeOpenAiCapabilitySourceSlug(slug).startsWith("gpt-5.6-");
+  if (slug.includes("/")) return false;
+  if (SELF_DESCRIBED_NATIVE_OPENAI_MODELS.has(slug)) return true;
+  return nativeOpenAiCapabilitySourceSlug(slug).startsWith("gpt-5.6-");
 }
 
 export function ensureGpt56ReasoningLevels(entry: RawEntry): void {

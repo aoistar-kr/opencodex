@@ -42,6 +42,16 @@ describe("passthrough token override", () => {
     expect(selected.get("chatgpt-account-id")).toBe("acc");
   });
 
+  test("selectForwardHeaders preserves x-opencode-session only for internal WS replay", () => {
+    const inbound = new Headers({
+      "x-opencode-session": "stable-ws-conversation",
+      "x-not-forwarded": "drop-me",
+    });
+    const selected = selectForwardHeaders(inbound);
+    expect(selected.get("x-opencode-session")).toBe("stable-ws-conversation");
+    expect(selected.get("x-not-forwarded")).toBeNull();
+  });
+
   test("selectForwardHeaders applies override after forwarding", () => {
     const headers = new Headers({ authorization: "Bearer original", "chatgpt-account-id": "main" });
     const selected = selectForwardHeaders(headers, { accessToken: "override_tk", chatgptAccountId: "override_acc" });

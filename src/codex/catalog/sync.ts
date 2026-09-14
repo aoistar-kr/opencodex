@@ -31,6 +31,7 @@ import { redactSecretString } from "../../lib/redact";
 import upstreamModelsSnapshot from "../data/upstream-models.json";
 import { OPENAI_CODEX_PROVIDER_ID } from "../../providers/openai-tiers";
 import { providerCodexAccountMode } from "../../providers/registry";
+import { isCuratedOpenCodeGoModel } from "../../providers/opencode-go";
 import { codexAccountNamespaceEntries, isMainCodexAccountTarget } from "../account-namespaces";
 import { MAIN_CODEX_ACCOUNT_ID } from "../main-account";
 import {
@@ -372,14 +373,18 @@ export function deriveEntry(
   // Fallback when no template is available (best-effort; strict parser may need more).
   // Routed fallbacks default to code-mode tool exposure (or shell mode when codexToolMode === "shell");
   // otherwise the nested catalog expands into `exec.description` and can exceed Cursor's 120 KB serialized tool limit (#1830).
-  // Cursor still omits hosted web-search metadata because runTurn bypasses that separate sidecar.
-  const isCursorFallback = isRouted && model?.provider === "cursor";
+  // Cursor bypasses hosted search; OpenCode Go deliberately delegates search only to Codex's
+  // standalone `web.run`. Both therefore omit hosted-search metadata while retaining deferred tool
+  // discovery. If standalone search is unavailable, OpenCode Go search fails closed instead of
+  // falling back into heterogeneous provider-hosted semantics.
+  const omitsHostedWebSearchFallback = isRouted
+    && (model?.provider === "cursor" || model?.provider === "opencode-go");
   const entry: RawEntry = {
     slug, display_name: routedDisplayName(slug), description: desc,
     shell_type: "unified_exec", visibility: "list", supported_in_api: true,
     priority, base_instructions: "You are a helpful coding assistant.",
     ...(isRouted
-      ? isCursorFallback
+      ? omitsHostedWebSearchFallback
         ? { supports_search_tool: true }
         : { web_search_tool_type: "text_and_image", supports_search_tool: true }
       : {}),
@@ -1056,9 +1061,12 @@ export function mergeCatalogEntriesFromObservedState({
   });
   // Reapply final catalog policy to rows preserved from disk. Those rows bypass
   // gatherRoutedModels, so filtering only the freshly gathered list can resurrect an excluded id.
-  finalRoutedEntries = finalRoutedEntries.filter(entry =>
-    typeof entry.slug !== "string" || !isRoutedModelCompatibilityExcluded(entry.slug)
-  );
+  finalRoutedEntries = finalRoutedEntries.filter(entry => {
+    if (typeof entry.slug !== "string") return true;
+    if (isRoutedModelCompatibilityExcluded(entry.slug)) return false;
+    if (!entry.slug.startsWith("opencode-go/")) return true;
+    return isCuratedOpenCodeGoModel(entry.slug.slice("opencode-go/".length));
+  });
   const accountBoundSlugs = new Set(alignedAccountBoundEntries.flatMap(entry =>
     typeof entry.slug === "string" ? [entry.slug] : []
   ));

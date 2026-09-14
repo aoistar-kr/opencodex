@@ -227,6 +227,8 @@ export interface MultiAgentGuidanceDeps {
     | Promise<{ state: "fresh" | "stale" | "not_running" | "unknown" }>;
 }
 
+const REQUEST_GUIDANCE_CATALOG_STATE_BUDGET_MS = 20;
+
 async function defaultCollectCatalogState(): Promise<{ state: "fresh" | "stale" | "not_running" | "unknown" }> {
   // Explicit override for tests and diagnostics: process state is global and
   // would otherwise leak the host machine's app-server into hermetic tests.
@@ -235,7 +237,27 @@ async function defaultCollectCatalogState(): Promise<{ state: "fresh" | "stale" 
     return { state: override };
   }
   const { collectCodexAppServerCatalogStateForRequest } = await import("../../codex/app-server-processes");
-  return collectCodexAppServerCatalogStateForRequest();
+  // This state is advisory: stale/unknown simply suppresses OpenCodex's optional
+  // positive multi-agent model guidance. On Windows, a cold CIM owner/start-time
+  // probe can take many seconds, so it must never sit in front of the user's
+  // inference request. Keep the collector running so it can populate its shared
+  // cache, but give the turn only a tiny budget to reuse an already-warm result.
+  const probe = collectCodexAppServerCatalogStateForRequest().catch(() => ({
+    state: "unknown" as const,
+    processes: [],
+    catalogMtimeMs: null,
+  }));
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      probe,
+      new Promise<{ state: "unknown" }>(resolve => {
+        timeout = setTimeout(() => resolve({ state: "unknown" }), REQUEST_GUIDANCE_CATALOG_STATE_BUDGET_MS);
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
 }
 
 

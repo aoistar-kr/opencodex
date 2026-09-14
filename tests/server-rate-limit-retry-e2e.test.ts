@@ -8,6 +8,7 @@ import { startServer } from "../src/server";
 import type { OcxConfig } from "../src/types";
 import { installIsolatedCodexHome, type IsolatedCodexHome } from "./helpers/isolated-codex-home";
 import { removeTreeWithRetry } from "./helpers/remove-tree";
+import { SERVER_BUDGET_MS } from "./helpers/test-budget";
 
 let testDir = "";
 let previousHome: string | undefined;
@@ -382,5 +383,5 @@ describe("server same-target 429 retry (end-to-end)", () => {
         globalThis.fetch = originalFetch;
       }
     }
-  });
+  }, SERVER_BUDGET_MS);
 });

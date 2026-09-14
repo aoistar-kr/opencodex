@@ -17,6 +17,7 @@ import {
   resolveEffectiveUserIdentity,
 } from "../src/codex/user-identity";
 import { claimOwnedServiceHome, withOwnedServiceHomePreload } from "./helpers/owned-service-home";
+import { SERVER_BUDGET_MS } from "./helpers/test-budget";
 
 const repoRoot = resolve(import.meta.dir, "..");
 const sandboxes: Sandbox[] = [];
@@ -331,7 +332,7 @@ for (const publisher of ["convergence", "retained"] as const) {
     } finally {
       provider.stop(true);
     }
-  }, 20_000);
+  }, SERVER_BUDGET_MS);
 }
 
 /**

@@ -47,6 +47,7 @@ import { legacyCustomModelCatalogSlugs } from "../src/codex/custom-model-catalog
 import { resetCodexModelEntitlementCacheForTests } from "../src/codex/model-entitlements";
 import { ACCOUNT_GATED_NATIVE_OPENAI_MODELS } from "../src/codex/catalog/native-models";
 import { removeCodexAccountCredential, saveCodexAccountCredential } from "../src/codex/account-store";
+import { watchdogMs } from "./helpers/ci-watchdog";
 
 // The canonical-bytes case spawns real syncs and runs ~2.5s in isolation, on this
 // tree and on a clean baseline alike. That is half of bun's 5s default, but full
@@ -703,7 +704,7 @@ test("retained and convergence writers resolve, clear, reject, and recover auto-
     expect(catalog.models?.find(entry => entry.slug === "static/deepseek-v4-flash"))
       .toHaveProperty("auto_review_model_override", "static/deepseek-v4-flash");
   }
-});
+}, watchdogMs(30_000));
 
 test("degraded preservation still honors explicit routed visibility policy", async () => {
   writeCatalog([
@@ -1202,4 +1203,4 @@ test("both writers restore pristine native priorities after featured-model trans
   const finalModels = (JSON.parse(convergenceFirst) as RawCatalog).models ?? [];
   expect(finalModels.find(entry => entry.slug === "gpt-5.6-sol")?.priority).toBe(41);
   expect(finalModels.find(entry => entry.slug === "gpt-5.5")?.priority).toBe(57);
-});
+}, watchdogMs(30_000));

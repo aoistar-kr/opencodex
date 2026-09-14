@@ -1,3 +1,5 @@
+import { OPENCODE_GO_ANTHROPIC_MODELS } from "../providers/opencode-go";
+
 /**
  * Accepted values for the per-provider upstream HTTP-version pin (#1668). Shared by the
  * zod load schema, the management write boundary (POST/PATCH), and the fetch runtime, so
@@ -46,7 +48,7 @@ export const MODEL_ADAPTER_OVERRIDE_ALLOWED: ReadonlySet<string> = new Set([
  * Anthropic for these models.
  */
 const ANTHROPIC_WIRE_MODELS: Record<string, ReadonlySet<string>> = {
-  "opencode-go": new Set(["minimax-m2.5", "minimax-m2.7", "minimax-m3"]),
+  "opencode-go": new Set(OPENCODE_GO_ANTHROPIC_MODELS),
 };
 
 function anthropicWireModelsForProvider(providerName: string): ReadonlySet<string> | undefined {

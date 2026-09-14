@@ -108,7 +108,7 @@ describe("live provider model discovery (authority + fallback)", () => {
     expect(ids).not.toContain("grok-4.20-multi-agent-beta-latest");
   });
 
-  test("HY3 compatibility guard hides only opencode-go/hy3-preview from live discovery", async () => {
+  test("OpenCode Go live discovery exposes only the curated compatibility roster", async () => {
     globalThis.fetch = (async (url: string | URL | Request) => {
       const isOpenCodeGo = String(url).startsWith("https://opencode-go.test/");
       return new Response(JSON.stringify({
@@ -143,7 +143,7 @@ describe("live provider model discovery (authority + fallback)", () => {
 
     expect(slugs).not.toContain("opencode-go/hy3-preview");
     expect(slugs).toContain("opencode-go/glm-5.2");
-    expect(slugs).toContain("opencode-go/future-live-model");
+    expect(slugs).not.toContain("opencode-go/future-live-model");
     expect(slugs).toContain("hy3-control-live-test/hy3-preview");
   });
 

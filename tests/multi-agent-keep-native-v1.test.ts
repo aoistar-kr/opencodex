@@ -173,7 +173,12 @@ describe("ocx v2 keep-native-v1", () => {
 
     const code = await cmdV2(["keep-native-v1", "on"], {
       execFile: (_file, args) => {
-        events.push(args.join(" "));
+        const joined = args.join(" ");
+        events.push(
+          joined.includes("disable") && joined.includes("multi_agent_v2")
+            ? "features disable multi_agent_v2"
+            : joined,
+        );
         writeFileSync(codexConfig, readFileSync(codexConfig, "utf8").replace("enabled = true", "enabled = false"));
       },
       sync: async () => { events.push("sync"); },
@@ -212,7 +217,8 @@ describe("ocx v2 keep-native-v1", () => {
 
     expect(await cmdV2(["mode", "v2"], {
       execFile: (_file, args) => {
-        actions.push(args[1]!);
+        const joined = args.join(" ");
+        actions.push(joined.includes("disable") ? "disable" : joined.includes("enable") ? "enable" : joined);
         writeFileSync(codexConfig, readFileSync(codexConfig, "utf8").replace("enabled = true", "enabled = false"));
       },
       sync: async () => {},

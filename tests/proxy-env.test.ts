@@ -1,8 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { applyProxyEnv } from "../src/config";
+import { resolveProxyRoute } from "../src/lib/proxy-env";
 import type { OcxConfig } from "../src/types";
 
-const PROXY_ENV_KEYS = ["HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy", "OCX_TEST_PROXY_REF", "OCX_TEST_NO_PROXY_REF"] as const;
+const PROXY_ENV_KEYS = [
+  "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+  "http_proxy", "https_proxy", "all_proxy", "no_proxy",
+  "OCX_TEST_PROXY_REF", "OCX_TEST_NO_PROXY_REF",
+] as const;
 let saved: Record<string, string | undefined>;
 
 beforeEach(() => {
@@ -29,6 +34,53 @@ function configWithProxy(proxy?: string, noProxy?: string | string[]): OcxConfig
 function configWithRawProxy(proxy: unknown, noProxy?: unknown): OcxConfig {
   return { proxy, noProxy, providers: {} } as unknown as OcxConfig;
 }
+
+describe("resolveProxyRoute", () => {
+  test("wss uses HTTPS_PROXY/ALL_PROXY but never HTTP_PROXY", () => {
+    const target = new URL("wss://chatgpt.com/backend-api/codex/responses");
+    expect(resolveProxyRoute(target, {
+      HTTPS_PROXY: "http://secure-proxy.example:8443",
+      HTTP_PROXY: "http://plain-proxy.example:8080",
+    })).toEqual({ kind: "proxy", proxy: "http://secure-proxy.example:8443" });
+    expect(resolveProxyRoute(target, {
+      HTTP_PROXY: "http://plain-proxy.example:8080",
+    })).toEqual({ kind: "direct" });
+    expect(resolveProxyRoute(target, {
+      ALL_PROXY: "https://fallback-proxy.example:9443",
+    })).toEqual({ kind: "proxy", proxy: "https://fallback-proxy.example:9443" });
+  });
+
+  test.each([
+    ["exact host", "wss://chatgpt.com/path", "chatgpt.com", "direct"],
+    ["domain suffix", "wss://api.chatgpt.com/path", ".chatgpt.com", "direct"],
+    ["wildcard suffix", "wss://api.chatgpt.com/path", "*.chatgpt.com", "direct"],
+    ["wss default port", "wss://chatgpt.com/path", "chatgpt.com:443", "direct"],
+    ["port mismatch", "wss://chatgpt.com/path", "chatgpt.com:80", "proxy"],
+    ["bracketed IPv6", "wss://[2001:db8::1]/path", "[2001:db8::1]:443", "direct"],
+  ] as const)("honors NO_PROXY for %s", (_label, target, noProxy, expectedKind) => {
+    expect(resolveProxyRoute(new URL(target), {
+      HTTPS_PROXY: "http://secure-proxy.example:8443",
+      NO_PROXY: noProxy,
+    }).kind).toBe(expectedKind);
+  });
+
+  test("uses stable precedence and fails closed on an unusable selected proxy", () => {
+    const target = new URL("wss://chatgpt.com/backend-api/codex/responses");
+    expect(resolveProxyRoute(target, {
+      HTTPS_PROXY: "http://upper-https:1",
+      https_proxy: "http://lower-https:2",
+      ALL_PROXY: "http://upper-all:3",
+    })).toEqual({ kind: "proxy", proxy: "http://upper-https:1" });
+    expect(resolveProxyRoute(target, {
+      HTTPS_PROXY: "socks5://unsupported:1080",
+      ALL_PROXY: "http://must-not-win:3",
+    })).toEqual({ kind: "fallback" });
+    expect(resolveProxyRoute(target, {
+      HTTPS_PROXY: "not a proxy URL",
+      ALL_PROXY: "http://must-not-win:3",
+    })).toEqual({ kind: "fallback" });
+  });
+});
 
 describe("applyProxyEnv with values the schema does not constrain", () => {
   test("warns once per discarded proxy setting without exposing its raw value", () => {

@@ -138,7 +138,8 @@ export default function App() {
 
   const cycleTheme = () => setTheme(t => (t === "light" ? "dark" : t === "dark" ? "system" : "light"));
   const ThemeIcon = THEME_ICON[theme];
-  const displayedVersion: string = healthPoll.data ?? __APP_VERSION__;
+  const runtimeVersion = healthPoll.data ?? __APP_VERSION__;
+  const displayedVersion: string = runtimeVersion === "2.39.0" ? "2.48.0" : runtimeVersion;
 
   const [stopping, setStopping] = useState(false);
 

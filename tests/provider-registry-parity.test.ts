@@ -61,9 +61,9 @@ describe("provider registry parity", () => {
     // Zen Go text-only models are vision-sidecar covered; Kimi K2.7 Code is multimodal and must NOT be listed.
     expect(KEY_LOGIN_PROVIDERS["opencode-go"].noVisionModels).toEqual([
       "glm-5.3",
-      "glm-5.2", "glm-5", "glm-5.1",
+      "glm-5.2", "glm-5.1",
       "deepseek-v4-flash", "deepseek-v4-pro",
-      "mimo-v2-pro", "mimo-v2.5-pro",
+      "mimo-v2.5-pro",
       "minimax-m2.5", "minimax-m2.7",
       "qwen3.7-max",
     ]);

@@ -4,8 +4,8 @@
  * Design (devlog/260711_claude_inbound/010, 003_evidence.md):
  *  - translate-and-replay: the produced body MUST pass the real responsesRequestSchema
  *    parse so routing/OAuth/pool/failover are inherited unchanged.
- *  - thinking/redacted_thinking blocks on replay are DROPPED (v1 policy) — routed
- *    providers carry reasoning in Responses items/ocxr1 envelopes instead.
+ *  - thinking/redacted_thinking replay is preserved in Responses reasoning items;
+ *    signatures and redacted payloads travel in bounded ocxr1 envelopes.
  *  - thinking.budget_tokens is NEVER forwarded raw; it maps to an effort tier.
  *  - top_k is accepted and silently dropped (no Responses equivalent, CCR parity).
  */
@@ -16,6 +16,7 @@ import { stripOneMillionMarker } from "./context-windows";
 import { resolveDesktop3pAlias } from "./desktop-3p";
 import { isClaudeWebSearchToolName } from "./outbound";
 import { createHash } from "node:crypto";
+import { decodeReasoningEnvelope, encodeReasoningEnvelope, OCX_REASONING_PREFIX } from "../responses/reasoning-envelope";
 
 export class AnthropicRequestError extends Error {}
 
@@ -381,9 +382,44 @@ function assistantMessageToItems(content: unknown, input: Rec[]): void {
         input.push({ type: "function_call", call_id: raw.id, name: raw.name, arguments: JSON.stringify(raw.input ?? {}) });
         break;
       }
-      case "thinking":
-      case "redacted_thinking":
-        break; // v1 policy: dropped on replay (003 evidence — safe for routed providers)
+      case "thinking": {
+        flush();
+        const thinking = typeof raw.thinking === "string" ? raw.thinking : "";
+        const signature = typeof raw.signature === "string" ? raw.signature : "";
+        if (signature.startsWith(OCX_REASONING_PREFIX)) {
+          const owned = decodeReasoningEnvelope(signature);
+          if (!owned) throw new AnthropicRequestError("malformed ocxr1 reasoning signature");
+          if (Object.hasOwn(owned, "sig")) {
+            throw new AnthropicRequestError("OpenCodex reasoning continuity cannot be replayed as an Anthropic signature");
+          }
+        }
+        const encrypted = signature.length === 0
+          ? undefined
+          : signature.startsWith(OCX_REASONING_PREFIX)
+            ? signature
+            : encodeReasoningEnvelope({ sig: signature });
+        if (thinking.length === 0 && !encrypted) break;
+        input.push({
+          type: "reasoning",
+          id: `rs_${crypto.randomUUID().replace(/-/g, "")}`,
+          summary: thinking.length > 0 ? [{ type: "summary_text", text: thinking }] : [],
+          ...(encrypted ? { encrypted_content: encrypted } : {}),
+        });
+        break;
+      }
+      case "redacted_thinking": {
+        flush();
+        const data = typeof raw.data === "string" ? raw.data : "";
+        if (data.length > 0) {
+          input.push({
+            type: "reasoning",
+            id: `rs_${crypto.randomUUID().replace(/-/g, "")}`,
+            summary: [],
+            encrypted_content: encodeReasoningEnvelope({ red: [data] }),
+          });
+        }
+        break;
+      }
       default:
         break;
     }
@@ -407,6 +443,9 @@ function toolsToResponses(tools: unknown): Rec[] | undefined {
         name: raw.name,
         ...(typeof raw.description === "string" ? { description: raw.description } : {}),
         parameters: raw.input_schema as Record<string, unknown>,
+        // Anthropic opts into strict tool use explicitly. Preserve that source intent instead of
+        // letting Responses infer strict mode and silently make optional schema fields required.
+        strict: typeof raw.strict === "boolean" ? raw.strict : false,
       });
       continue;
     }

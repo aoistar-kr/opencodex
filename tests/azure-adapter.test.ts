@@ -53,12 +53,15 @@ describe("Azure OpenAI adapter hardening", () => {
       },
     });
     const body = JSON.parse(request.body) as {
-      input: Array<{ tools?: Array<{ type: string; name?: string }> }>;
+      tools: Array<{ type: string; name?: string; parameters?: Record<string, unknown> }>;
+      input: Array<{ type?: string; tools?: Array<{ type: string; name?: string }> }>;
     };
 
-    expect(body.input[0]?.tools).toEqual([
+    expect(body.input.some(item => item.type === "additional_tools")).toBe(false);
+    expect(body.tools).toEqual([
       // parameters gains an object root on the way out (#745): the passthrough normalizer
-      // runs on additional_tools too, so a schema declared as {} ships as {type:"object"}.
+      // runs after the private Responses Lite catalog is promoted to top-level tools, so a
+      // schema declared as {} ships as {type:"object"}.
       // What this test is about is the namespace lowering in the name.
       { type: "function", name: "image_gen__imagegen", parameters: { type: "object" } },
     ]);

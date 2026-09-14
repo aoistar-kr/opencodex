@@ -263,6 +263,13 @@ export interface OcxProviderConfig {
    */
   decodesNativeCompactionBlobs?: boolean;
   /**
+   * Explicit opt-in for a Codex-aware Responses runtime on the local loopback interface.
+   * When paired with allowPrivateNetwork, the Responses adapter may preserve Codex-private
+   * per-item provenance and a credential-free allowlist of turn identity headers. Public or
+   * non-loopback destinations ignore this flag so Codex-private metadata cannot leak outward.
+   */
+  preserveCodexPrivateMetadata?: boolean;
+  /**
    * Explicit opt-in for non-registry private-network destinations such as localhost, RFC1918,
    * link-local, or unique-local upstreams. Metadata endpoints remain blocked.
    */

@@ -1,6 +1,7 @@
 import type { ServerWebSocket } from "bun";
 import { responsesJsonEventSequence } from "./responses-json-events";
 import { FORWARD_HEADERS } from "../adapters/openai-responses";
+import { OPENCODE_GO_SESSION_HEADER } from "../providers/opencode-go-transport";
 import type { CodexAuthContext } from "../codex/auth-context";
 import { headersForCodexAuthContext } from "../codex/auth-context";
 import type { ResponsesTerminalStatus } from "../bridge";
@@ -93,6 +94,11 @@ export function selectForwardHeaders(
     const value = headers.get(name);
     if (value) selected.set(name, value);
   }
+  // Handshake headers are the only per-conversation metadata available to later WS frames.
+  // Keep the OpenCode Go session value inside the proxy even though it is deliberately absent
+  // from FORWARD_HEADERS; handleResponses hashes it and forwards it only after a Go route wins.
+  const explicitOpenCodeGoSession = headers.get(OPENCODE_GO_SESSION_HEADER);
+  if (explicitOpenCodeGoSession) selected.set(OPENCODE_GO_SESSION_HEADER, explicitOpenCodeGoSession);
   if (codexOverride) {
     selected.set("authorization", `Bearer ${codexOverride.accessToken}`);
     selected.set("chatgpt-account-id", codexOverride.chatgptAccountId);

@@ -8,8 +8,11 @@ import {
   OPAQUE_COMPACTION_NOTE,
   SUMMARY_PREFIX,
   buildCompactV1Output,
+  compactionOriginFingerprint,
   decodeCompactionSummary,
+  decodeHybridCompaction,
   encodeCompactionSummary,
+  encodeHybridCompaction,
   extractCompactUserMessages,
 } from "../src/responses/compaction";
 import type { AdapterEvent } from "../src/types";
@@ -49,6 +52,26 @@ describe("compaction envelope", () => {
   });
   test("rejects real (OpenAI-encrypted) blobs", () => {
     expect(decodeCompactionSummary("gAAAAABm-openai-encrypted")).toBeNull();
+  });
+  test("round-trips a hybrid native + portable summary without rewriting native state", () => {
+    const origin = "a".repeat(64);
+    const enc = encodeHybridCompaction("gAAAAA-native:with:delimiters", "portable checkpoint", origin);
+    expect(enc.startsWith("ocx2:")).toBe(true);
+    expect(decodeHybridCompaction(enc)).toEqual({
+      native: "gAAAAA-native:with:delimiters",
+      summary: "portable checkpoint",
+      origin,
+    });
+    expect(decodeCompactionSummary(enc)).toBe("portable checkpoint");
+  });
+  test("origin-less hybrid envelopes remain portable-only", () => {
+    expect(decodeHybridCompaction(encodeHybridCompaction("native", "summary"))?.origin).toBeNull();
+  });
+  test("rejects malformed hybrid envelopes", () => {
+    expect(decodeHybridCompaction("ocx2:")) .toBeNull();
+    expect(decodeHybridCompaction("ocx2:c3VtbWFyeQ==:")) .toBeNull();
+    expect(decodeHybridCompaction("ocx2::native")) .toBeNull();
+    expect(decodeHybridCompaction("ocx2:not*base64:native")) .toBeNull();
   });
 });
 
@@ -178,11 +201,28 @@ describe("forward-path ocx1 compaction scrub", () => {
     baseUrl: "https://chatgpt.example/backend-api/codex",
     authMode: "forward" as const,
   };
+  const replayIdentity = {
+    providerName: "openai",
+    providerDestinationIdentity: "destination:process",
+    providerDestinationDurableIdentity: "destination:durable",
+    adapterName: "openai-responses",
+    modelId: "gpt-5.5",
+    credentialIdentity: "identity:process",
+    credentialDurableIdentity: "identity:durable",
+  };
+  const replayOrigin = compactionOriginFingerprint([
+    replayIdentity.providerName,
+    replayIdentity.providerDestinationDurableIdentity,
+    replayIdentity.credentialDurableIdentity,
+    replayIdentity.adapterName,
+    replayIdentity.modelId,
+  ])!;
 
   function forwardedBody(
     rawBody: Record<string, unknown>,
     target = provider,
     threadServingIdentityChanged = false,
+    replayScope?: typeof replayIdentity,
   ): { input: Array<Record<string, unknown>> } {
     const adapter = createResponsesPassthroughAdapter(target as never);
     const request = adapter.buildRequest({
@@ -192,6 +232,7 @@ describe("forward-path ocx1 compaction scrub", () => {
       options: {},
       _rawBody: rawBody,
       ...(threadServingIdentityChanged ? { _stripReasoningEncryptedContent: true } : {}),
+      ...(replayScope ? { _reasoningReplayScope: { clientThreadId: "thread-1", current: replayScope } } : {}),
     }, { headers: new Headers() });
     return JSON.parse(request.body as string) as { input: Array<Record<string, unknown>> };
   }
@@ -231,6 +272,76 @@ describe("forward-path ocx1 compaction scrub", () => {
     }, { ...provider, baseUrl: CODEX_FORWARD_BASE_URL });
     expect(body.input[0].type).toBe("compaction");
     expect(body.input[0].encrypted_content).toBe("gAAAAA-real-openai-blob");
+  });
+
+  test("ocx2 unwraps its original native blob for the same native destination", () => {
+    const body = forwardedBody({
+      model: "gpt-5.5",
+      input: [{
+        type: "compaction",
+        encrypted_content: encodeHybridCompaction("gAAAAA-native-blob", "portable summary", replayOrigin),
+      }],
+    }, { ...provider, baseUrl: CODEX_FORWARD_BASE_URL }, false, replayIdentity);
+    expect(body.input[0]).toEqual({
+      type: "compaction",
+      encrypted_content: "gAAAAA-native-blob",
+    });
+  });
+
+  test("ocx2 lowers to portable text when durable origin differs without an in-process mismatch record", () => {
+    const otherReplayIdentity = {
+      ...replayIdentity,
+      credentialIdentity: "identity:other-process",
+      credentialDurableIdentity: "identity:other-durable",
+    };
+    const body = forwardedBody({
+      model: "gpt-5.5",
+      input: [{
+        type: "compaction",
+        encrypted_content: encodeHybridCompaction("gAAAAA-native-blob", "portable summary", replayOrigin),
+      }],
+    }, { ...provider, baseUrl: CODEX_FORWARD_BASE_URL }, false, otherReplayIdentity);
+    expect(body.input[0].type).toBe("message");
+    expect(JSON.stringify(body.input[0])).toContain("portable summary");
+    expect(JSON.stringify(body.input[0])).not.toContain("gAAAAA-native-blob");
+  });
+
+  test("origin-less ocx2 stays portable even on a native-decoding destination", () => {
+    const body = forwardedBody({
+      model: "gpt-5.5",
+      input: [{
+        type: "compaction",
+        encrypted_content: encodeHybridCompaction("gAAAAA-native-blob", "portable summary"),
+      }],
+    }, { ...provider, baseUrl: CODEX_FORWARD_BASE_URL }, false, replayIdentity);
+    expect(body.input[0].type).toBe("message");
+    expect(JSON.stringify(body.input[0])).toContain("portable summary");
+  });
+
+  test("ocx2 lowers to its portable summary after a serving-identity change", () => {
+    const body = forwardedBody({
+      model: "gpt-5.5",
+      input: [{
+        type: "compaction",
+        encrypted_content: encodeHybridCompaction("gAAAAA-native-blob", "portable summary", replayOrigin),
+      }],
+    }, { ...provider, baseUrl: CODEX_FORWARD_BASE_URL }, true, replayIdentity);
+    expect(body.input[0].type).toBe("message");
+    expect(JSON.stringify(body.input[0])).toContain("portable summary");
+    expect(JSON.stringify(body.input[0])).not.toContain("gAAAAA-native-blob");
+  });
+
+  test("ocx2 lowers to its portable summary for a non-decoding destination", () => {
+    const body = forwardedBody({
+      model: "gpt-5.5",
+      input: [{
+        type: "compaction",
+        encrypted_content: encodeHybridCompaction("gAAAAA-native-blob", "portable summary", replayOrigin),
+      }],
+    }, provider, false, replayIdentity);
+    expect(body.input[0].type).toBe("message");
+    expect(JSON.stringify(body.input[0])).toContain("portable summary");
+    expect(JSON.stringify(body.input[0])).not.toContain("gAAAAA-native-blob");
   });
 
   test("known serving-identity changes degrade native blobs before OpenAI forwarding", () => {

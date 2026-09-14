@@ -45,7 +45,9 @@ describe("OpenCode Go GPT 5.6 Luna wire selection (#1482)", () => {
 
 describe("OpenCode Go Luna Responses route (#1482)", () => {
   const originalFetch = globalThis.fetch;
-  afterEach(() => { globalThis.fetch = originalFetch; });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
 
   test("handleResponses sends Luna to the documented /responses endpoint", async () => {
     const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
@@ -68,7 +70,10 @@ describe("OpenCode Go Luna Responses route (#1482)", () => {
     const response = await handleResponses(
       new Request("http://localhost/v1/responses", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          "x-opencode-session": "opencode-go-luna-wire-test",
+        },
         body: JSON.stringify({ model: `opencode-go/${MODEL}`, input: "ping", stream: true }),
       }),
       config,
@@ -82,4 +87,5 @@ describe("OpenCode Go Luna Responses route (#1482)", () => {
     // The endpoint fix does not silently impose the separate bounded-JSON policy.
     expect(requests[0]?.body.stream).toBe(true);
   });
+
 });

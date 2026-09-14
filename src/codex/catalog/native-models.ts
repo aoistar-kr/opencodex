@@ -1,6 +1,9 @@
 /** ChatGPT/Codex wire id observed for the account-native Daybreak Blue surface. */
 export const NATIVE_DAYBREAK_BLUE_MODEL = "gpt-daybreak-blue-latest";
 
+/** Shipped GPT-6 Astra native Codex model id. */
+export const NATIVE_GPT6_ASTRA_MODEL = "gpt-6-astra";
+
 /** Native ChatGPT/Codex ids whose availability is proven per authenticated account. */
 export const ACCOUNT_GATED_NATIVE_OPENAI_MODELS: ReadonlySet<string> = new Set([
   "gpt-5.6-sol",
@@ -25,6 +28,11 @@ const NATIVE_OPENAI_CAPABILITY_SOURCES: Readonly<Record<string, string>> = Objec
   [NATIVE_DAYBREAK_BLUE_MODEL]: "gpt-5.6-sol",
 });
 
+/** Native slugs that carry their own pinned upstream catalog row. */
+export const SELF_DESCRIBED_NATIVE_OPENAI_MODELS: ReadonlySet<string> = new Set([
+  NATIVE_GPT6_ASTRA_MODEL,
+]);
+
 /**
  * Native ids whose capability metadata is inherited from another pinned native row.
  *
@@ -46,8 +54,23 @@ export function isNativeOpenAiCapabilityAliasModel(slug: string): boolean {
   return Object.hasOwn(NATIVE_OPENAI_CAPABILITY_SOURCES, slug);
 }
 
+export function hasNativeOpenAiCapabilityMetadata(slug: string): boolean {
+  return isNativeOpenAiCapabilityAliasModel(slug) || SELF_DESCRIBED_NATIVE_OPENAI_MODELS.has(slug);
+}
+
 export function nativeOpenAiCapabilitySourceSlug(slug: string): string {
   return NATIVE_OPENAI_CAPABILITY_SOURCES[slug] ?? slug;
+}
+
+export const NATIVE_OPENAI_ALIAS_PRESENTATION: Readonly<Record<string, { displayName: string; description: string }>> = Object.freeze({
+  [NATIVE_DAYBREAK_BLUE_MODEL]: {
+    displayName: "Daybreak Blue",
+    description: "Frontier general-purpose model with safeguards for defensive cybersecurity work.",
+  },
+});
+
+export function nativeOpenAiAliasPresentation(slug: string): { displayName: string; description: string } | undefined {
+  return NATIVE_OPENAI_ALIAS_PRESENTATION[slug];
 }
 
 /**
@@ -70,6 +93,7 @@ export const NATIVE_OPENAI_MODELS = [
   "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex-spark",
   "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
   NATIVE_DAYBREAK_BLUE_MODEL,
+  NATIVE_GPT6_ASTRA_MODEL,
 ];
 
 export const SUPPORTED_NATIVE_OPENAI_SLUGS = new Set(NATIVE_OPENAI_MODELS);

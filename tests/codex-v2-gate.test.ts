@@ -47,6 +47,7 @@ import { resetCodexRuntimeResolveCacheForTests, setCodexRuntimeResolveCacheForTe
 import { cmdV2, codexFeaturesInvocation, v2StatusLine, multiAgentModeLine } from "../src/cli/v2";
 import { handleManagementAPI } from "../src/server/management-api";
 import { catalogConvergenceFactory } from "./helpers/catalog-convergence";
+import { STORE_BUDGET_MS } from "./helpers/test-budget";
 
 function template(): Record<string, unknown> {
   return {
@@ -1763,7 +1764,7 @@ describe("cli surface", () => {
       if (oldCodexHome === undefined) delete process.env.CODEX_HOME; else process.env.CODEX_HOME = oldCodexHome;
       if (oldOcxHome === undefined) delete process.env.OPENCODEX_HOME; else process.env.OPENCODEX_HOME = oldOcxHome;
     }
-  }, 15_000);
+  }, STORE_BUDGET_MS);
 });
 
 describe("mock-max wire clamp (nativeEffortClamp)", () => {

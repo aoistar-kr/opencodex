@@ -129,6 +129,7 @@ async function comboApi(
   });
   return handleManagementAPI(req, new URL(req.url), config, {
     createManagementConvergeCodex: catalogConvergenceFactory(refreshCodexCatalog),
+    collectCodexAppServerCatalogState: () => ({ state: "not_running", processes: [], catalogMtimeMs: null }),
   });
 }
 
@@ -645,6 +646,7 @@ describe("combo management API", () => {
         free: { ...VALID_COMBO, alias: "deepseek-v4-flash" },
       },
     });
+    for (const provider of Object.values(config.providers)) provider.liveModels = false;
     config.providers.a!.modelContextWindows = { m1: 128_000 };
 
     const response = await comboApi(config, "GET", "/api/subagent-models");

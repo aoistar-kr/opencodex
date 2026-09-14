@@ -162,6 +162,25 @@ Codex-private tool fields are removed at the same boundary from one table
 web-search variant, and `defer_loading` on any declaration, which `activateDeferredTool` clears only
 for tools a `tool_search_output` already loaded. A new private bit is a row there.
 
+Codex app-server history has one additional private/public mismatch: an internal
+`function_call_output` may be a named standalone notification/result with `namespace: "codex_app"`
+and no `call_id`, while public Responses function outputs require a real matching call id. At every
+noncanonical public Responses boundary, OpenCodex lowers only this attributable standalone shape to
+a `developer` message carrying `codex_app/<name>` plus its textual output. It never fabricates a
+`call_id`, and any output that already has a non-empty `call_id` is preserved as a normal tool-result
+pair. Canonical ChatGPT and an explicitly opted-in local Codex-aware loopback keep their private
+history semantics; a noncanonical provider configured with `authMode: "forward"` is still a public
+boundary because authentication mode is not evidence that the destination understands Codex-private
+history items. Non-text/unknown standalone output remains fail-closed instead of being guessed at.
+
+[Decision Log]
+- 목적과 의도: Keep app-server collaboration history replayable through strict third-party Responses providers without inventing public tool-call lineage that never existed.
+- 기존 구현 및 제약 조건: Codex protocol history permits named standalone function outputs with optional call ids, while strict public Responses implementations require `function_call_output.call_id`; one such `codex_app/send_message_to_thread` item made every later Console Go turn reject the entire request.
+- 검토한 주요 대안: Generate a synthetic call id; drop the item; special-case only `send_message_to_thread`; reject the thread; or lower the complete attributable private class at the public wire boundary.
+- 선택한 방식: Convert only call-id-less, named `codex_app` standalone outputs with recoverable text into attributed developer messages; preserve real paired outputs and private-aware destinations unchanged.
+- 다른 대안 대신 이 방식을 선택한 이유: A fake id creates an orphan public tool result, dropping loses collaboration state, and a tool-name allowlist would repeat the same failure for automation/bootstrap siblings. The namespace plus missing call id is the protocol distinction Codex itself exposes.
+- 장점, 단점 및 영향: Existing cross-thread messages remain visible to routed models and strict providers no longer reject the replay. The conversion deliberately gives up tool-result semantics only where those semantics did not exist on the public wire in the first place; malformed unrelated public outputs continue through existing validation rather than being silently repaired.
+
 After that namespace boundary has produced public function tools, the Grok CLI Responses transport
 applies the same root-schema policy as its Chat transport. A root `oneOf`/`anyOf` is flattened only
 when the shared xAI normalizer can preserve its meaning; an unsafe function is omitted instead of
@@ -230,17 +249,49 @@ to GUI static serving.
 - 장점, 단점 및 영향: Completed Cursor responses no longer wait for the 300-second watchdog when the HTTP body stays open; incomplete tool calls still emit their existing truncation error, and error-bearing Connect terminals remain failures.
 
 A replayed compaction item carries an `encrypted_content` blob only its minting backend can decode,
-and the client replays it on every later turn. The proxy's own `ocx1:` envelopes are transparent
-base64, so they always lower to plain user messages. A native blob is relayed only when there is no
-known serving-identity mismatch and the destination is known to decode native blobs — the canonical
-ChatGPT forward surface, the official OpenAI API, or a provider with the explicit
-`decodesNativeCompactionBlobs` capability. The destination gate alone is insufficient because more
-than one backend, including OpenAI and xAI, mints native blobs: a destination can decode its own blob
-without being able to decode the previous backend's. The same serving-identity mismatch signal
-therefore strips reasoning `encrypted_content` and degrades native compaction blobs through the
-existing opaque-note path. When the thread has no recorded identity, the destination-only behavior
-is deliberately unchanged. Forward auth alone is not evidence: noncanonical forward providers
-receive no caller credentials and may point at any backend. On any other routed destination the blob
+and the client replays it on every later turn. The proxy owns two versioned portability envelopes:
+`ocx1:` carries a transparent plaintext summary for routed compaction, while `ocx2:` carries BOTH the
+original native opaque blob, a provider-neutral plaintext checkpoint, and an opaque restart-stable
+origin fingerprint. The fingerprint is derived from the same durable route components used by
+reasoning replay — provider, destination, credential/account, adapter, and model — and contains no
+raw token, API key, or account id. A successful native compact is followed by one best-effort,
+tool-free, `store:false` render turn sent DIRECTLY through the exact provider/auth transport that
+returned the compact blob. It does not re-enter model/account routing: if a same-request quota retry
+moved compact from account A to B, B also renders the shadow. The minting backend can therefore
+decode its own compact state and render the portable half without replaying the full pre-compaction
+transcript. If that shadow render fails, native compaction remains successful and the original native
+response is returned unchanged.
+
+There are two native-compaction ingress shapes. `/v1/responses/compact` remains supported where the
+upstream exposes that endpoint, but the current canonical ChatGPT backend serves Codex remote
+compaction v2 through the NORMAL `/v1/responses` endpoint with a trailing `compaction_trigger` and
+requires `stream:true`. The canonical passthrough therefore buffers ONLY such compaction turns to
+their protocol terminal, obtains the completed native compaction snapshot, attaches the same `ocx2`
+portable shadow, then re-frames that completed snapshot as canonical Responses SSE for Codex. Normal
+ChatGPT turns stay on the existing tee/eager/WS streaming paths. Live verification on 2026-09-14
+observed `/responses/compact` return upstream 404 for `gpt-5.6-sol`, `gpt-5.5`, and `gpt-5.6-luna`,
+while `/responses + compaction_trigger + stream:true` produced the real native compaction used by the
+client.
+
+On later replay, `ocx1:` always lowers to a plain user message. `ocx2:` unwraps only its original
+native blob when the destination is known to decode native blobs, the current durable origin
+fingerprint matches the embedded minting origin, AND there is no stricter in-process serving-identity
+mismatch. This survives a proxy restart without trusting a newly empty process-local identity cache:
+an origin-less or mismatched `ocx2` is portable-only even if the destination can decode its OWN native
+blobs. The canonical ChatGPT forward surface, the official OpenAI API, or a provider with the explicit
+`decodesNativeCompactionBlobs` capability can therefore receive native state only when provenance also
+matches. Otherwise `ocx2:` lowers its portable checkpoint. The wrapper itself is never sent upstream.
+A LEGACY raw native blob has no portable text or embedded provenance; those items retain the existing
+fail-closed opaque-note/destination-gated compatibility behavior because the proxy cannot
+retroactively reconstruct information it never received in plaintext.
+
+The destination gate alone is insufficient because more than one backend, including OpenAI and xAI,
+mints native blobs: a destination can decode its own blob without being able to decode the previous
+backend's. The same serving-identity mismatch signal therefore strips reasoning `encrypted_content`
+and lowers compaction through either the `ocx2` portable checkpoint or, for legacy native blobs, the
+opaque-note path. When the thread has no recorded identity, the destination-only behavior is
+deliberately unchanged. Forward auth alone is not evidence: noncanonical forward providers receive
+no caller credentials and may point at any backend. On any other routed destination a legacy blob
 also degrades to the same opaque note the bridged parser uses, because forwarding it there fails the
 turn and the item outlives the failure in the client transcript, repeating on every later turn
 including the compaction turn the proxy itself drives. With `store: false`, request sanitization
@@ -248,23 +299,35 @@ strips ids from every input item, including compact-wire items, matching codex-r
 (`core/src/client.rs:918-925`). Compact-wire items remain exempt from response-side field backfill.
 
 [Decision Log]
-- 목적과 의도: Keep a session usable after its history crosses backends, instead of wedging it on a
-  compaction blob the current upstream cannot decode.
+- 목적과 의도: Keep a session usable AND preserve compacted semantics after its history crosses
+  backends, instead of wedging it on a compaction blob the current upstream cannot decode or reducing
+  every cross-backend compact to a content-free note.
 - 기존 구현 및 제약 조건: Compaction handling was binary — `ocx1:` envelopes were ours, everything
   else was treated as a native blob and gated only by the destination, even though multiple backends
   mint mutually incompatible blobs. Response-side field backfill exempted only `compaction`, so its
   two sibling types received synthesized ids the client then replayed.
-- 검토한 주요 대안: Tag every compaction item with its minting provider/credential/model identity;
-  drop compaction items on any route change; gate relay on the destination that would decode them.
-- 선택한 방식: Reuse the thread's recorded serving identity to degrade native blobs after a known
-  route change; otherwise retain the destination capability gate, and treat the compact wire family
-  as one enumeration so id-bearing passes cannot diverge per type.
-- 다른 대안 대신 이 방식을 선택한 이유: Full per-item provenance tagging is unnecessary when the
-  existing thread identity proves a route change, while dropping the item would silently discard
-  compacted context and widening unknown-identity behavior needs a separate decision.
-- 장점, 단점 및 영향: A cross-backend session degrades one compaction summary to a note instead of
-  failing every later turn. A self-hosted OpenAI relay keeps its blobs only when explicitly opted in;
-  other routed gateways see a note because routed compaction produces an `ocx1:` envelope.
+- 검토한 주요 대안: Store raw provider/account labels beside every compaction item; drop compaction
+  items on any route change; keep a process/disk `blob -> summary` side cache; parse Codex
+  `guardian_history` in the hot path; gate relay only on the destination that would decode them.
+- 선택한 방식: Reuse the durable reasoning-replay identity scheme to put only a non-secret origin
+  fingerprint in `ocx2(native, portable summary, origin)`. The summary is rendered immediately by
+  the EXACT transport/account that returned the native compact blob, without a second routing pass.
+  For the canonical ChatGPT `compaction_trigger` contract, buffer only that internal compaction SSE
+  to its terminal snapshot, attach `ocx2`, and synthesize the equivalent canonical SSE back to Codex;
+  ordinary turns are not buffered. Same-origin replay unwraps native state; an origin mismatch,
+  unknown origin, known in-process route change, or non-decoding destination lowers the portable
+  half. Legacy raw blobs keep the safe note fallback.
+- 다른 대안 대신 이 방식을 선택한 이유: A side cache loses restart/fork continuity or creates a
+  second persistence/privacy lifecycle. Rollout parsing couples the network hot path to one Codex
+  storage layout. Dropping or noting every blob preserves availability but loses the exact compacted
+  context. `ocx2` travels with the history Codex already persists and does not require the proxy to
+  decrypt native state.
+- 장점, 단점 및 영향: Newly minted native compactions remain native-fast on their proven minting
+  backend and carry real portable context across providers/resume/restart. Restart does not erase the
+  provenance check, and pool failover cannot render A's blob with B (or vice versa). Native
+  compaction pays one additional best-effort render request. If that request fails, behavior falls
+  back to the pre-existing native result; pre-patch legacy blobs still cannot be made semantically
+  portable without an offline recovery source such as guardian history.
 
 ### Mixed-wire provider defaults
 
@@ -304,6 +367,15 @@ keeps the provider-wide `openai-chat` default for other non-pinned models. This 
 does not set `modelResponsesUpstreamStreaming`: client `stream: true` remains real upstream
 streaming until a current-runtime reproduction justifies a separate bounded-JSON compatibility
 policy.
+
+OpenCode Go also requires `x-opencode-session` on inference traffic. OpenCodex derives one stable,
+opaque 32-character SHA-256 conversation digest from the strongest available conversation identity
+and injects it only after the route resolves to the fixed Go destination. Responses, native Chat,
+translated Anthropic Messages, and Responses WebSocket all converge on that rule. An explicit inbound
+`x-opencode-session` may supply the stable identity, but its raw value is never forwarded. A Go turn
+with no stable conversation identity returns HTTP 400 before upstream dispatch rather than inventing a
+per-request id or sending a headerless request. OpenCodex also supplies `User-Agent: opencodex` unless
+the operator configured a different user agent.
 
 [Decision Log]
 - 목적과 의도: Match OpenCode Go's model-specific Luna endpoint without changing sibling model behavior.

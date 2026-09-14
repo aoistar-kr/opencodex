@@ -157,16 +157,12 @@ describe("Responses buildRequest web_search capability", () => {
       type: "web_search",
       user_location: { type: "approximate" },
       filters: { allowed_domains: ["example.com"] },
+    }, {
+      type: "web_search",
+      user_location: { type: "approximate", country: "KR" },
+      filters: { excluded_domains: ["blocked.example"] },
     }]);
-    expect(body.input).toEqual([{
-      type: "additional_tools",
-      role: "developer",
-      tools: [{
-        type: "web_search",
-        user_location: { type: "approximate", country: "KR" },
-        filters: { excluded_domains: ["blocked.example"] },
-      }],
-    }]);
+    expect(body.input).toEqual([]);
     expect(body.tool_choice).toEqual({ type: "web_search" });
   });
 });

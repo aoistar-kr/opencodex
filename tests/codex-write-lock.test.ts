@@ -282,7 +282,7 @@ describe("two real processes contend for one lock", () => {
   const childPath = join(import.meta.dir, "helpers", "codex-write-lock-child.ts");
 
   function spawnChild(payload: Record<string, unknown>) {
-    return Bun.spawn(["bun", childPath], {
+    return Bun.spawn([process.execPath, childPath], {
       env: { ...process.env, CODEX_HOME: codexHome, OCX_LOCK_CHILD_PAYLOAD: JSON.stringify(payload) },
       stdout: "pipe",
       stderr: "pipe",
@@ -291,7 +291,7 @@ describe("two real processes contend for one lock", () => {
 
   /** Same child, but with the home-shaped environment variables under test. */
   function spawnChildWithEnv(payload: Record<string, unknown>, env: Record<string, string>) {
-    return Bun.spawn(["bun", childPath], {
+    return Bun.spawn([process.execPath, childPath], {
       env: {
         ...process.env,
         CODEX_HOME: codexHome,

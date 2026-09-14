@@ -22,6 +22,7 @@ async function getRoster(config: OcxConfig): Promise<{ chosen: string[]; availab
     new Request("http://localhost/api/subagent-models"),
     new URL("http://localhost/api/subagent-models"),
     config,
+    { collectCodexAppServerCatalogState: () => ({ state: "not_running", processes: [], catalogMtimeMs: null }) },
   );
   expect(res).not.toBeNull();
   return await res!.json() as { chosen: string[]; available: string[] };

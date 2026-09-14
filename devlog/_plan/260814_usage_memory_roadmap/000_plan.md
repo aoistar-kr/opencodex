@@ -7,6 +7,12 @@ prior-art: "#1008 (closed/unmerged), #1412 (open draft), #1367 (open), #1635 (op
 
 # 000 — Objective
 
+> Status reconciliation (2026-09-05): **partially implemented / stale baseline**. The current tree
+> contains later input-admission and transport/memory hardening, so the P0 instructions below are no
+> longer an executable stack as written. The original P1 segmented-writer / SQLite-projector layout
+> is not present in the current `src/usage/` tree. Treat this document as residual design input only;
+> create a new current-state plan before resuming any unfinished storage work.
+
 OpenCodex has two independent structural problems:
 
 1. **Usage data lifecycle** — a single unbounded `usage.jsonl` that grows forever,

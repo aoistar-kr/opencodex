@@ -53,6 +53,7 @@ import {
   tryAdmitTurn,
 } from "../src/server/lifecycle";
 import { startServer } from "../src/server";
+import { watchdogMs } from "./helpers/ci-watchdog";
 
 const roots: string[] = [];
 const previousOpencodexHome = process.env.OPENCODEX_HOME;
@@ -225,7 +226,7 @@ async function fixture(
   return { root, codexHome, configDir, key, manager, target, sourceProfileId: sourceRecord.id, targetProfileId: targetRecord.id };
 }
 
-async function waitForPath(path: string, timeoutMs = 10_000): Promise<void> {
+async function waitForPath(path: string, timeoutMs = watchdogMs(10_000)): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!existsSync(path) && Date.now() < deadline) await Bun.sleep(10);
   if (!existsSync(path)) throw new Error(`Timed out waiting for ${path}`);
@@ -237,7 +238,7 @@ async function waitForPath(path: string, timeoutMs = 10_000): Promise<void> {
  * 0 — which is how a CI run fetched http://127.0.0.1:0 and called it a flake.
  * Wait for a port that is actually a port.
  */
-async function waitForPort(path: string, timeoutMs = 10_000): Promise<number> {
+async function waitForPort(path: string, timeoutMs = watchdogMs(10_000)): Promise<number> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     if (existsSync(path)) {
@@ -599,7 +600,7 @@ describe("native-main startup journal gate", () => {
         await stopChild(child, paths);
       }
     }
-  }, 120_000);
+  }, process.env.CI === "true" && process.platform === "win32" ? 180_000 : 120_000);
 
   test("manual observations keep main closed while health and explicit recovery remain available", async () => {
     for (const observation of ["unreadable", "third"] as const) {

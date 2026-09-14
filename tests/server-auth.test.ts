@@ -41,6 +41,7 @@ import { handleResponses } from "../src/server/responses";
 import type { OcxConfig } from "../src/types";
 import { fakeChatGptJwt } from "./helpers/fake-chatgpt-jwt";
 import { installIsolatedCodexHome, type IsolatedCodexHome } from "./helpers/isolated-codex-home";
+import { removeTreeWithRetry } from "./helpers/remove-tree";
 import { ownedServiceHomeInspection } from "./helpers/owned-service-home-inspection";
 import { configuredAdminToken } from "../src/lib/admin-secrets";
 import { SYSTEM_RESTART_CAPABILITY_VERSION } from "../src/lib/system-restart-contract";
@@ -148,7 +149,7 @@ afterEach(() => {
   resetCodexModelEntitlementCacheForTests();
   resetDebugSettingsForTests();
   resetDebugLogBufferForTests();
-  if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
+  if (existsSync(TEST_DIR)) removeTreeWithRetry(TEST_DIR);
 });
 
 const POOL_RETRY_MODEL = "gpt-5.5";
@@ -1213,7 +1214,7 @@ describe("server local API auth", () => {
     } finally {
       await server.stop(true);
     }
-  });
+  }, { timeout: SERVER_BUDGET_MS });
 
   test("non-loopback management API allows same-origin GUI requests with API token", async () => {
     if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
@@ -2208,6 +2209,7 @@ describe("server local API auth", () => {
     clearAccountNeedsReauth("pool-a");
 
     const seenAuth: Array<string | null> = [];
+    const refreshTimes: number[] = [];
     const upstream = Bun.serve({
       port: 0,
       fetch(req) {
@@ -2249,7 +2251,13 @@ describe("server local API auth", () => {
       Date.now = () => now;
       globalThis.fetch = (async (input, init) => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        // Moving the fixture clock invalidates the quota cache. Keep that refresh local:
+        // a real WHAM 401 would force OAuth rotation before the first websocket turn.
+        if (url === "https://chatgpt.com/backend-api/wham/usage") {
+          return Response.json({ rate_limit: { primary_window: { used_percent: 10 } } });
+        }
         if (url === "https://auth.openai.com/oauth/token") {
+          refreshTimes.push(Date.now());
           return new Response(JSON.stringify({
             access_token: "new-access-token",
             refresh_token: "new-refresh-token",
@@ -2278,14 +2286,19 @@ describe("server local API auth", () => {
       });
 
       await waitForOpen;
+      const firstTerminal = waitForTerminal();
       ws.send(JSON.stringify({ type: "response.create", model: "gpt-test", input: "hello" }));
-      await waitForTerminal();
+      await firstTerminal;
+      expect(seenAuth).toEqual(["Bearer old-access-token"]);
+      expect(refreshTimes).toEqual([]);
       Date.now = () => now + 180_000;
+      const secondTerminal = waitForTerminal();
       ws.send(JSON.stringify({ type: "response.create", model: "gpt-test", input: "again" }));
-      await waitForTerminal();
+      await secondTerminal;
       ws.close();
 
       expect(seenAuth).toEqual(["Bearer old-access-token", "Bearer new-access-token"]);
+      expect(refreshTimes).toEqual([now + 180_000]);
       const logs = logsFromApiBody(await fetch(new URL("/api/logs?tail=2", server.url), { headers: managementHeaders() }).then(r => r.json()));
       expect(logs.map(entry => entry.status)).toEqual([200, 200]);
     } finally {

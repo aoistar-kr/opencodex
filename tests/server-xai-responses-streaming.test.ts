@@ -317,11 +317,12 @@ describe("xAI OAuth Responses streaming opt-in", () => {
         type: string;
         tools?: Array<{ type: string; name?: string }>;
       }> | undefined;
-      const outboundTools = outboundInput?.find(item => item.type === "additional_tools")?.tools;
+      const outboundTools = outboundBody?.tools as Array<{ type: string; name?: string }> | undefined;
+      expect(outboundInput?.some(item => item.type === "additional_tools")).toBe(false);
       expect(outboundTools?.some(tool => tool.type === "namespace")).toBe(false);
       expect(outboundTools?.find(tool => tool.name === "exec")?.type).toBe("function");
       expect(outboundTools?.find(tool => tool.name === "collaboration__spawn_agent")?.type).toBe("function");
-      expect(outboundBody?.tools).toEqual([{ type: "web_search" }]);
+      expect(outboundTools?.some(tool => tool.type === "web_search")).toBe(true);
 
       const payloads = clientText
         .split(/\r?\n/)

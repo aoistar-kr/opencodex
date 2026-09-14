@@ -1,8 +1,9 @@
+import { normalizeRoutedAgentMessages } from "./routed-agent-messages";
 import { createHash } from "node:crypto";
 import type { IncomingMeta, ProviderAdapter } from "./base";
 import { namespacedToolName, type AdapterEvent, type OcxParsedRequest, type OcxProviderConfig, type OcxUsage, type TierDecision } from "../types";
 import { catalogModelSupportsReasoningSummaries } from "../codex/catalog";
-import { COMPACT_PROMPT, compactionItemToText, decodeCompactionSummary, isCompactionItemType } from "../responses/compaction";
+import { COMPACT_PROMPT, compactionItemToText, compactionOriginFingerprint, decodeCompactionSummary, decodeHybridCompaction, isCompactionItemType } from "../responses/compaction";
 import { collectResponsesToolGroups } from "../responses/tool-groups";
 import { isHostedToolUnsupportedForModel } from "../responses/hosted-tool-policy";
 import { decodeServerSentEvents } from "../lib/sse-decoder";
@@ -52,6 +53,143 @@ export const FORWARD_HEADERS = [
   "x-openai-subagent",
   "x-responsesapi-include-timing-metrics",
 ];
+
+/**
+ * Credential-free Codex identity carried only to an explicitly opted-in loopback Responses
+ * runtime. This is intentionally narrower than FORWARD_HEADERS: caller auth/account/attestation
+ * never crosses the routed-provider boundary.
+ */
+export const CODEX_LOOPBACK_IDENTITY_HEADERS = [
+  "originator",
+  "session_id",
+  "session-id",
+  "thread-id",
+  "x-client-request-id",
+  "x-codex-parent-thread-id",
+  "x-codex-turn-metadata",
+  "x-codex-turn-state",
+  "x-codex-window-id",
+  "x-openai-subagent",
+] as const;
+
+function isLoopbackResponsesProvider(provider: OcxProviderConfig): boolean {
+  if (provider.allowPrivateNetwork !== true) return false;
+  try {
+    const url = new URL(provider.baseUrl);
+    const host = url.hostname.toLowerCase();
+    return host === "127.0.0.1" || host === "::1" || host === "localhost";
+  } catch {
+    return false;
+  }
+}
+
+function isCodexPrivateMetadataLoopback(provider: OcxProviderConfig): boolean {
+  return provider.preserveCodexPrivateMetadata === true && isLoopbackResponsesProvider(provider);
+}
+
+function codexTurnMetadataValue(body: unknown): unknown {
+  if (!isPlainObject(body) || !isPlainObject(body.client_metadata)) return undefined;
+  return body.client_metadata["x-codex-turn-metadata"];
+}
+
+function parsedTurnMetadata(value: unknown): Record<string, unknown> | undefined {
+  if (isPlainObject(value)) return value;
+  if (typeof value !== "string") return undefined;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return isPlainObject(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function codexPrivateItemShape(body: unknown): {
+  inputItems: number;
+  privateMetadataItems: number;
+  environmentItems: number;
+  userTextItems: number;
+  additionalContentItems: number;
+  kinds: string[];
+} {
+  if (!isPlainObject(body) || !Array.isArray(body.input)) {
+    return { inputItems: 0, privateMetadataItems: 0, environmentItems: 0, userTextItems: 0, additionalContentItems: 0, kinds: [] };
+  }
+  let privateMetadataItems = 0;
+  let environmentItems = 0;
+  let userTextItems = 0;
+  let additionalContentItems = 0;
+  const kinds = new Set<string>();
+  for (const value of body.input) {
+    if (!isPlainObject(value)) continue;
+    const metadata = isPlainObject(value.internal_chat_message_metadata_passthrough)
+      ? value.internal_chat_message_metadata_passthrough
+      : undefined;
+    if (!metadata) continue;
+    privateMetadataItems += 1;
+    const itemKinds = Array.isArray(metadata.content_item_kinds)
+      ? metadata.content_item_kinds.filter((kind): kind is string => typeof kind === "string")
+      : [];
+    for (const kind of itemKinds) kinds.add(kind);
+    if (itemKinds.includes("environments.environment_context")) environmentItems += 1;
+    if (itemKinds.includes("user.text")) userTextItems += 1;
+    if (itemKinds.some(kind => kind.startsWith("additional_content."))) additionalContentItems += 1;
+  }
+  return {
+    inputItems: body.input.length,
+    privateMetadataItems,
+    environmentItems,
+    userTextItems,
+    additionalContentItems,
+    kinds: [...kinds].sort(),
+  };
+}
+
+function debugLoopbackCodexShape(
+  provider: OcxProviderConfig,
+  modelId: string,
+  incomingHeaders: Headers,
+  beforeBody: unknown,
+  afterBody: unknown,
+  outboundHeaders: Record<string, string>,
+): void {
+  if (!isLoopbackResponsesProvider(provider)) return;
+  const inboundHeader = incomingHeaders.get("x-codex-turn-metadata");
+  const outboundHeader = outboundHeaders["x-codex-turn-metadata"] ?? null;
+  const beforeRaw = codexTurnMetadataValue(beforeBody);
+  const afterRaw = codexTurnMetadataValue(afterBody);
+  const before = parsedTurnMetadata(beforeRaw);
+  const after = parsedTurnMetadata(afterRaw);
+  const inboundParsed = parsedTurnMetadata(inboundHeader);
+  const beforeThread = typeof before?.thread_id === "string" ? before.thread_id : undefined;
+  const beforeTurn = typeof before?.turn_id === "string" ? before.turn_id : undefined;
+  const afterThread = typeof after?.thread_id === "string" ? after.thread_id : undefined;
+  const afterTurn = typeof after?.turn_id === "string" ? after.turn_id : undefined;
+  const inboundThread = typeof inboundParsed?.thread_id === "string" ? inboundParsed.thread_id : undefined;
+  const inboundTurn = typeof inboundParsed?.turn_id === "string" ? inboundParsed.turn_id : undefined;
+  debugProviderDiagnostic("openai-responses", "loopback-codex-shape", {
+    modelId,
+    preserveOptIn: provider.preserveCodexPrivateMetadata === true,
+    inboundHeaderPresent: inboundHeader !== null,
+    outboundHeaderPresent: outboundHeader !== null,
+    bodyMetadataBeforePresent: beforeRaw !== undefined,
+    bodyMetadataAfterPresent: afterRaw !== undefined,
+    bodyMetadataPreserved: beforeRaw !== undefined && JSON.stringify(beforeRaw) === JSON.stringify(afterRaw),
+    headerEqualsBodyBefore: inboundHeader !== null && typeof beforeRaw === "string" && inboundHeader === beforeRaw,
+    headerEqualsBodyAfter: inboundHeader !== null && typeof afterRaw === "string" && inboundHeader === afterRaw,
+    threadBeforePresent: beforeThread !== undefined,
+    threadAfterPresent: afterThread !== undefined,
+    turnBeforePresent: beforeTurn !== undefined,
+    turnAfterPresent: afterTurn !== undefined,
+    inboundThreadMatchesBodyBefore: inboundThread !== undefined && beforeThread !== undefined && inboundThread === beforeThread,
+    inboundTurnMatchesBodyBefore: inboundTurn !== undefined && beforeTurn !== undefined && inboundTurn === beforeTurn,
+    bodyThreadPreserved: beforeThread !== undefined && beforeThread === afterThread,
+    bodyTurnPreserved: beforeTurn !== undefined && beforeTurn === afterTurn,
+    metadataFieldsBefore: before ? Object.keys(before).sort() : [],
+    metadataFieldsAfter: after ? Object.keys(after).sort() : [],
+    beforeItems: codexPrivateItemShape(beforeBody),
+    afterItems: codexPrivateItemShape(afterBody),
+  });
+}
 
 /**
  * Sanitize reasoning input by field policy, not by preserving each item's shape. Retaining a
@@ -289,10 +427,11 @@ function stripItemIdsWhenUnstored(body: unknown): unknown {
  * turn, and only the backend that minted it can decode it. Proxy-minted `ocx1:` envelopes are
  * transparent base64 rather than encryption, so no upstream can read them and they always become
  * plain user messages. Native blobs have multiple possible minters, so a destination's ability to
- * decode its own blobs does not make a blob from a previous serving identity portable. On a known
- * identity mismatch the blob degrades to the same note the bridged parser uses, even when the
- * destination normally accepts native blobs. Without a known mismatch, the destination capability
- * keeps the existing behavior.
+ * decode its own blobs does not make a blob from a previous serving identity portable. Proxy-owned
+ * `ocx2` therefore requires its embedded restart-stable origin fingerprint to match the current
+ * durable route identity before native unwrap is allowed; an absent/mismatched origin lowers to the
+ * portable checkpoint. The process-local serving-identity mismatch remains a stricter veto. Legacy
+ * raw native blobs have no embedded provenance and retain the older destination-capability behavior.
  *
  * A bare `context_compaction` marker carries no blob and is forwarded untouched.
  */
@@ -300,6 +439,7 @@ function scrubOcxCompactionItems(
   body: unknown,
   destinationDecodesNativeBlob: boolean,
   threadServingIdentityChanged: boolean,
+  currentOrigin: string | null,
 ): unknown {
   if (!isPlainObject(body) || !Array.isArray(body.input)) return body;
 
@@ -308,6 +448,18 @@ function scrubOcxCompactionItems(
     if (!isPlainObject(item) || !isCompactionItemType(item.type)) return item;
     const encrypted = typeof item.encrypted_content === "string" ? item.encrypted_content : undefined;
     if (encrypted === undefined) return item;
+    const hybrid = decodeHybridCompaction(encrypted);
+    if (
+      hybrid
+      && hybrid.origin !== null
+      && currentOrigin !== null
+      && hybrid.origin === currentOrigin
+      && destinationDecodesNativeBlob
+      && !threadServingIdentityChanged
+    ) {
+      changed = true;
+      return { ...item, encrypted_content: hybrid.native };
+    }
     if (
       decodeCompactionSummary(encrypted) === null
       && destinationDecodesNativeBlob
@@ -804,6 +956,51 @@ function promoteClientLoadedTools(body: unknown): unknown {
   const input = [...body.input];
   input[additionalToolsIndex] = { ...additionalTools, tools };
   return { ...body, input };
+}
+
+/**
+ * Codex Desktop's responses_lite transport can carry tool declarations in the private
+ * `additional_tools` input item. Public/third-party Responses upstreams accept the same tool
+ * declarations at top-level `tools`, not as conversation input, so lift every such container at
+ * the noncanonical protocol boundary and remove the private item.
+ *
+ * Run before the existing custom/tool-search/namespace lowering passes so promoted namespace
+ * groups get the same public-wire normalization as tools that were declared at the top level.
+ */
+function promoteAdditionalToolsForPublicResponses(body: unknown): unknown {
+  if (!isPlainObject(body) || !Array.isArray(body.input)) return body;
+  // Do not replace a malformed public catalog with a partial promoted one. This mirrors the
+  // upstream Go compatibility hardening while keeping our broader noncanonical normalization.
+  if (body.tools !== undefined && !Array.isArray(body.tools)) return body;
+
+  const promoted: unknown[] = [];
+  const input: unknown[] = [];
+  let found = false;
+  for (const item of body.input) {
+    if (isPlainObject(item) && item.type === "additional_tools" && Array.isArray(item.tools)) {
+      found = true;
+      promoted.push(...item.tools);
+      continue;
+    }
+    input.push(item);
+  }
+  if (!found) return body;
+  if (promoted.length === 0) return { ...body, input };
+
+  const declared = Array.isArray(body.tools) ? body.tools : [];
+  let tools = mergeLoadedTools(declared, promoted);
+  // `mergeLoadedTools` intentionally keys declarations by `name`. Hosted tools such as
+  // web_search have no name, but are also legal inside Codex's additional_tools envelope.
+  // Preserve them when lifting the envelope, while avoiding an identical duplicate already
+  // present in the public catalog.
+  for (const candidate of promoted) {
+    if (!isPlainObject(candidate) || typeof candidate.name === "string") continue;
+    const active = activateDeferredTool(candidate);
+    const serialized = JSON.stringify(active);
+    if (tools.some(existing => isPlainObject(existing) && JSON.stringify(existing) === serialized)) continue;
+    tools = [...tools, active];
+  }
+  return { ...body, input, tools };
 }
 
 const MAX_RESPONSES_CALL_ID_LENGTH = 64;
@@ -1926,57 +2123,6 @@ export function stripOpenAiOnlyWebSearchFields(body: unknown): unknown {
   return changed ? next : body;
 }
 
-/**
- * OpenCode Zen / Go Muse Spark Responses gateway refuses `search_content_types`
- * on a plain `web_search` tool (400) but accepts it on `web_search_preview`; a
- * plain `web_search` is also accepted. Probed directly against the gateway on
- * 2026-08-26: `web_search` + `search_content_types` -> 400, `web_search_preview`
- * + `search_content_types` -> 200, plain `web_search` -> 200. Luna accepts every
- * shape, so this is Muse-only. Drop only the field the gateway refuses while
- * keeping the tool type and every other accepted option intact.
- */
-function stripMuseSparkUnsupportedWebSearchFields(body: unknown, modelId: unknown): unknown {
-  if (!isPlainObject(body)) return body;
-  if (typeof modelId !== "string" || modelId.trim().toLowerCase() !== "muse-spark-1.2-contributor") return body;
-
-  const rewriteTools = (tools: unknown[]): { tools: unknown[]; changed: boolean } => {
-    let changed = false;
-    const rewritten = tools.map(tool => {
-      if (!isPlainObject(tool) || tool.type !== "web_search") return tool;
-      if (!Object.hasOwn(tool, "search_content_types")) return tool;
-      const { search_content_types: _dropped, ...rest } = tool;
-      changed = true;
-      return rest;
-    });
-    return { tools: changed ? rewritten : tools, changed };
-  };
-
-  let next: Record<string, unknown> = body;
-  let changed = false;
-  if (Array.isArray(body.tools)) {
-    const rewritten = rewriteTools(body.tools);
-    if (rewritten.changed) {
-      next = { ...next, tools: rewritten.tools };
-      changed = true;
-    }
-  }
-  if (Array.isArray(next.input)) {
-    let inputChanged = false;
-    const input = next.input.map(item => {
-      if (!isPlainObject(item) || item.type !== "additional_tools" || !Array.isArray(item.tools)) return item;
-      const rewritten = rewriteTools(item.tools);
-      if (!rewritten.changed) return item;
-      inputChanged = true;
-      return { ...item, tools: rewritten.tools };
-    });
-    if (inputChanged) {
-      next = { ...next, input };
-      changed = true;
-    }
-  }
-  return changed ? next : body;
-}
-
 /** Replace every `input_image` part under a routed-compaction body with a short marker. */
 function stripInputImagesDeep(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stripInputImagesDeep);
@@ -2102,6 +2248,12 @@ export function createResponsesPassthroughAdapter(provider: OcxProviderConfig): 
         }
         if (provider.apiKey) headers["Authorization"] = `Bearer ${provider.apiKey}`;
         if (provider.headers) Object.assign(headers, provider.headers);
+        if (isCodexPrivateMetadataLoopback(provider)) {
+          for (const name of CODEX_LOOPBACK_IDENTITY_HEADERS) {
+            const value = incoming?.headers.get(name);
+            if (value) headers[name] = value;
+          }
+        }
       }
 
       const forward = provider.authMode === "forward";
@@ -2114,6 +2266,13 @@ export function createResponsesPassthroughAdapter(provider: OcxProviderConfig): 
         parsed._rawBody,
         forward || parsed._previousResponseInputExpanded === true,
       );
+      // Canonical ChatGPT and an explicitly trusted loopback runtime understand Codex-private
+      // history items. Every other Responses destination is a public wire boundary, including a
+      // noncanonical provider configured with `authMode: "forward"`; auth mode is not a capability
+      // signal for standalone app-server outputs or `agent_message`.
+      if (!isCanonicalOpenAiForwardProvider(provider) && !isCodexPrivateMetadataLoopback(provider)) {
+        outBody = normalizeRoutedAgentMessages(outBody);
+      }
       outBody = mapRoutedResponsesReasoningEffort(outBody, provider, parsed.modelId);
       // stripPreviousResponseId() intentionally returns its input on a no-op. Detach before the
       // tier write so a force-fast/default decision can never mutate parsed._rawBody.
@@ -2133,6 +2292,19 @@ export function createResponsesPassthroughAdapter(provider: OcxProviderConfig): 
       }
       if (provider.requiresAdjacentResponsesToolResults === true) {
         outBody = normalizeResponsesToolResultAdjacency(outBody);
+      }
+      if (!isCanonicalOpenAiForwardProvider(provider)) {
+        // Public Responses gateways reject Codex-private item provenance. A deliberately opted-in
+        // loopback Codex runtime is the opposite boundary: stripping this field destroys the
+        // trusted environment ownership that runtime needs before any browser work can begin.
+        if (!isCodexPrivateMetadataLoopback(provider)) {
+          outBody = stripInternalChatMessageMetadataPassthrough(outBody);
+        }
+        // Tool-search replay loading mutates whichever catalog Codex sent. Do that first, then
+        // collapse responses_lite's private catalog envelope so every later routed transform sees
+        // the public Responses shape only.
+        outBody = promoteClientLoadedTools(outBody);
+        outBody = promoteAdditionalToolsForPublicResponses(outBody);
       }
       if (forward) {
         outBody = stripUnsupportedForwardParams(outBody);
@@ -2163,10 +2335,6 @@ export function createResponsesPassthroughAdapter(provider: OcxProviderConfig): 
       // `queries` for DeepSeek (#930), `query` for Console Go (#3071).
       outBody = backfillWebSearchQueries(outBody);
       if (!isCanonicalOpenAiForwardProvider(provider)) {
-        outBody = stripInternalChatMessageMetadataPassthrough(outBody);
-        outBody = promoteClientLoadedTools(outBody);
-      }
-      if (!isCanonicalOpenAiForwardProvider(provider)) {
         const rewritten = rewriteRoutedCustomToolsForUpstream(
           outBody,
           provider.supportsResponsesCustomTools,
@@ -2186,7 +2354,7 @@ export function createResponsesPassthroughAdapter(provider: OcxProviderConfig): 
         // Codex 0.147 emits private namespace tool groups, while public/third-party Responses
         // gateways accept only flat tool variants. Run after custom/tool-search lowering so
         // namespace children already carry their final public kind before they are promoted.
-        const rewritten = rewriteRoutedNamespaceToolsForUpstream(outBody);
+        const rewritten = rewriteRoutedNamespaceToolsForUpstream(outBody, convertedRoutedCustomToolNames);
         outBody = rewritten.body;
         convertedRoutedNamespaceToolAliases = rewritten.aliases;
         // Preserve xAI's cached-only fail-closed semantics and image-search mapping before the
@@ -2198,7 +2366,6 @@ export function createResponsesPassthroughAdapter(provider: OcxProviderConfig): 
         if (provider.supportsOpenAiWebSearchToolFields === false) {
           outBody = stripOpenAiOnlyWebSearchFields(outBody);
         }
-        outBody = stripMuseSparkUnsupportedWebSearchFields(outBody, parsed.modelId);
         // Last, so promoted namespace children are also cleared of Codex-private fields.
         outBody = stripCanonicalOnlyToolFields(outBody, provider.supportsOpenAiWebSearchToolFields === false);
       }
@@ -2211,6 +2378,14 @@ export function createResponsesPassthroughAdapter(provider: OcxProviderConfig): 
         outBody = buildRoutedCompactionBody(outBody);
       }
       const threadServingIdentityChanged = parsed._stripReasoningEncryptedContent === true;
+      const replayIdentity = parsed._reasoningReplayScope?.current;
+      const currentCompactionOrigin = compactionOriginFingerprint([
+        replayIdentity?.providerName,
+        replayIdentity?.providerDestinationDurableIdentity,
+        replayIdentity?.credentialDurableIdentity,
+        replayIdentity?.adapterName,
+        replayIdentity?.modelId,
+      ]);
       const sanitizedBody = normalizeToolSchemas(
         stripSparkCompatibility(
           stripUnsupportedReasoningParams(
@@ -2222,6 +2397,7 @@ export function createResponsesPassthroughAdapter(provider: OcxProviderConfig): 
                       outBody,
                       destinationDecodesNativeCompactionBlob(provider),
                       threadServingIdentityChanged,
+                      currentCompactionOrigin,
                     ),
                     {
                       preserveRawReasoningContent: provider.preserveResponsesReasoningContent === true,
@@ -2254,6 +2430,7 @@ export function createResponsesPassthroughAdapter(provider: OcxProviderConfig): 
         actualServiceTier === null ? null : "service-tier",
         actualServiceTier,
       );
+      debugLoopbackCodexShape(provider, parsed.modelId, incoming.headers, parsed._rawBody, finalBody, headers);
       const body = JSON.stringify(finalBody);
       const releaseBodyObservation = translatorBudget.observeExternallyCapped(
         "passthrough_serialization",

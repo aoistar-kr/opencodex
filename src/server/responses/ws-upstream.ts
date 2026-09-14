@@ -14,6 +14,7 @@
 
 import { MAX_CLIENT_SSE_FRAME_BYTES } from "../sse-frame-buffer";
 import { compareBunVersions } from "../../lib/bun-stream-caps";
+import { resolveProxyRoute } from "../../lib/proxy-env";
 
 const CODEX_RESPONSES_HTTP_URL = "https://chatgpt.com/backend-api/codex/responses";
 const CODEX_RESPONSES_WS_URL = "wss://chatgpt.com/backend-api/codex/responses";
@@ -211,6 +212,11 @@ export function codexWsUpstreamFetch(
       ? headers["openai-beta"]
       : `${headers["openai-beta"]}, ${WS_BETA}`
     : WS_BETA;
+  const proxyRoute = resolveProxyRoute(new URL(CODEX_RESPONSES_WS_URL));
+  // Bun's WebSocket transport only supports HTTP(S) proxy URLs here. For an unsupported or
+  // malformed configured route, keep the request on the already proxy-aware HTTP SSE path.
+  if (proxyRoute.kind === "fallback") return sseFallback(url, init);
+  const proxy = proxyRoute.kind === "proxy" ? proxyRoute.proxy : undefined;
   // A genuine caller `originator` is already in these headers via the forward
   // set. Never fabricate one here: pool/forward traffic must not impersonate
   // Codex CLI, per the metadata-integrity contract. (The backend's fast lane
@@ -221,7 +227,10 @@ export function codexWsUpstreamFetch(
     let ws: WebSocket;
     try {
       // Bun accepts per-handshake headers; the DOM lib types only list protocol arrays.
-      ws = new WebSocket(CODEX_RESPONSES_WS_URL, { headers } as unknown as string[]);
+      ws = new WebSocket(CODEX_RESPONSES_WS_URL, {
+        headers,
+        ...(proxy ? { proxy } : {}),
+      } as unknown as string[]);
     } catch {
       resolve(sseFallback(url, init));
       return;
