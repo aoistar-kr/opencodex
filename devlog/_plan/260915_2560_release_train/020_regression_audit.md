@@ -73,3 +73,19 @@ live sideband relay; and it would not help HTTP clients, a restarted proxy, or a
 early by the byte caps. The refusal path covers all of those uniformly, so the timeout stays 0 and
 the coupling is recorded where the constant lives, with
 `tests/responses/ws-endpoint.test.ts` holding the pair together.
+
+## Round 2 — the frozen range, audited from this worktree
+
+Round 1 ran before #4683 landed and against a range that had no frozen endpoint. Round 2 audits
+the nine commits enumerated in `000_roadmap.md` against the candidate `2702911708`, from a managed
+worktree so the auditors read a tree nobody is editing underneath them. Same instrument as round 1:
+parallel `gpt-5.6-sol` subagents at medium reasoning effort, reading committed objects, running no
+tests.
+
+The weight is deliberately on the three facade splits and on the final tree they produce together.
+Each split was landed as behaviour-preserving, and each was reviewed alone; what no single review
+covered is the tree that results from all three plus the new module #4683 added. That is the slice
+that exists because a per-commit-clean range can still end in a broken tree.
+
+### Round 2 findings
+
