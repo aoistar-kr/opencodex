@@ -55,9 +55,10 @@ jobs:
           set -euo pipefail
           tag="$(gh api "repos/${UPSTREAM_REPOSITORY}/releases/latest" --jq '.tag_name')"
           test -n "$tag"
-          case "$tag" in
-            *-*) echo "::error::releases/latest returned prerelease-like tag $tag"; exit 1 ;;
-          esac
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::latest release tag is not stable semver: $tag"
+            exit 1
+          fi
           printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
 
       - name: Fetch exact release tag
@@ -70,14 +71,38 @@ jobs:
           ref="refs/remotes/upstream-release/${TAG}"
           git fetch --no-tags --force upstream "refs/tags/${TAG}:${ref}"
           if git merge-base --is-ancestor "$ref" HEAD; then
+            integrated=true
+            merge=false
+          else
+            integrated=false
+            merge=true
+          fi
+
+          marker="refs/tags/cicd-deployed-${TAG}"
+          set +e
+          git ls-remote --exit-code --tags origin "$marker" >/dev/null 2>&1
+          marker_status=$?
+          set -e
+          case "$marker_status" in
+            0) deployed=true ;;
+            2) deployed=false ;;
+            *) echo "::error::Could not query deployment marker $marker"; exit "$marker_status" ;;
+          esac
+          if [[ "$deployed" == true && "$integrated" != true ]]; then
+            echo "::error::Deployment marker exists but ${TAG} is not integrated into custom"
+            exit 1
+          fi
+          echo "merge=$merge" >> "$GITHUB_OUTPUT"
+          if [[ "$deployed" == true ]]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "${TAG} is already integrated"
+            echo "${TAG} is already integrated and deployed"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "${TAG} requires validation/deployment (merge=$merge)"
           fi
 
       - name: Merge upstream release without auto-resolution
-        if: steps.detect.outputs.changed == 'true'
+        if: steps.detect.outputs.merge == 'true'
         shell: bash
         env:
           TAG: ${{ steps.release.outputs.tag }}
@@ -124,18 +149,21 @@ jobs:
           test -f "$package_file"
           printf 'package_file=%s\n' "$package_file" >> "$GITHUB_OUTPUT"
 
-      - name: Commit and push integrated release
+      - name: Publish validated candidate identity
         if: steps.detect.outputs.changed == 'true'
         id: publish
         shell: bash
         env:
           TAG: ${{ steps.release.outputs.tag }}
+          NEEDS_MERGE: ${{ steps.detect.outputs.merge }}
         run: |
           set -euo pipefail
-          git status --short
-          git commit -m "chore(upstream): integrate ${TAG}"
+          if [[ "$NEEDS_MERGE" == true ]]; then
+            git status --short
+            git commit -m "chore(upstream): integrate ${TAG}"
+            git push origin "HEAD:${CUSTOM_BRANCH}"
+          fi
           sha="$(git rev-parse HEAD)"
-          git push origin "HEAD:${CUSTOM_BRANCH}"
           printf 'sha=%s\n' "$sha" >> "$GITHUB_OUTPUT"
 
       - name: Upload validated package
@@ -173,3 +201,35 @@ jobs:
           $packages = @(Get-ChildItem -LiteralPath .cicd-package -Filter *.tgz -File)
           if ($packages.Count -ne 1) { throw "Expected exactly one OpenCodex package, found $($packages.Count)" }
           ./scripts/cicd/deploy-local-windows.ps1 -PackagePath $packages[0].FullName
+
+  mark-deployed:
+    needs: [integrate, deploy]
+    if: needs.integrate.outputs.changed == 'true' && needs.deploy.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout custom branch
+        uses: actions/checkout@v4
+        with:
+          ref: custom
+          fetch-depth: 0
+
+      - name: Record successful local deployment
+        shell: bash
+        env:
+          TAG: ${{ needs.integrate.outputs.tag }}
+          SHA: ${{ needs.integrate.outputs.sha }}
+        run: |
+          set -euo pipefail
+          marker="cicd-deployed-${TAG}"
+          existing="$(git ls-remote --tags origin "refs/tags/${marker}" | awk '{print $1}')"
+          if [[ -n "$existing" ]]; then
+            [[ "$existing" == "$SHA" ]] || { echo "::error::Deployment marker points to $existing, expected $SHA"; exit 1; }
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "$marker" "$SHA"
+          git push origin "refs/tags/${marker}"
