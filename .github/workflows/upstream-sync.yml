@@ -1,0 +1,175 @@
+name: Upstream Sync
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: opencodex-upstream-sync
+  cancel-in-progress: false
+
+env:
+  CUSTOM_BRANCH: custom
+  UPSTREAM_REPOSITORY: lidge-jun/opencodex
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      changed: ${{ steps.detect.outputs.changed }}
+      sha: ${{ steps.publish.outputs.sha }}
+      tag: ${{ steps.release.outputs.tag }}
+    steps:
+      - name: Checkout custom branch
+        uses: actions/checkout@v4
+        with:
+          ref: custom
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+
+      - name: Configure upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git remote get-url upstream >/dev/null 2>&1; then
+            git remote set-url upstream "https://github.com/${UPSTREAM_REPOSITORY}.git"
+          else
+            git remote add upstream "https://github.com/${UPSTREAM_REPOSITORY}.git"
+          fi
+
+      - name: Resolve latest stable upstream release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$(gh api "repos/${UPSTREAM_REPOSITORY}/releases/latest" --jq '.tag_name')"
+          test -n "$tag"
+          case "$tag" in
+            *-*) echo "::error::releases/latest returned prerelease-like tag $tag"; exit 1 ;;
+          esac
+          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch exact release tag
+        id: detect
+        shell: bash
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          ref="refs/remotes/upstream-release/${TAG}"
+          git fetch --no-tags --force upstream "refs/tags/${TAG}:${ref}"
+          if git merge-base --is-ancestor "$ref" HEAD; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "${TAG} is already integrated"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Merge upstream release without auto-resolution
+        if: steps.detect.outputs.changed == 'true'
+        shell: bash
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          ref="refs/remotes/upstream-release/${TAG}"
+          if ! git merge --no-ff --no-commit "$ref"; then
+            echo "::error::Upstream merge conflict. Refusing automatic resolution or deployment."
+            git diff --name-only --diff-filter=U || true
+            git merge --abort || true
+            exit 1
+          fi
+
+      - name: Install locked dependencies
+        if: steps.detect.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile
+          cd gui
+          bun install --frozen-lockfile
+
+      - name: Fail-closed verification
+        if: steps.detect.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun run typecheck
+          bun run test
+          bun run privacy:scan
+          bun run build:gui
+          git diff --exit-code
+
+      - name: Pack candidate
+        if: steps.detect.outputs.changed == 'true'
+        id: pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm pack --json > .upstream-pack.json
+          package_file="$(node -e "const p=require('./.upstream-pack.json'); if(!Array.isArray(p)||p.length!==1||!p[0].filename) process.exit(1); console.log(p[0].filename)")"
+          test -f "$package_file"
+          printf 'package_file=%s\n' "$package_file" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push integrated release
+        if: steps.detect.outputs.changed == 'true'
+        id: publish
+        shell: bash
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git status --short
+          git commit -m "chore(upstream): integrate ${TAG}"
+          sha="$(git rev-parse HEAD)"
+          git push origin "HEAD:${CUSTOM_BRANCH}"
+          printf 'sha=%s\n' "$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Upload validated package
+        if: steps.detect.outputs.changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencodex-${{ steps.release.outputs.tag }}
+          path: ${{ steps.pack.outputs.package_file }}
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy:
+    needs: integrate
+    if: needs.integrate.outputs.changed == 'true'
+    runs-on: [self-hosted, Windows, X64, opencodex-deploy]
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout validated commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.integrate.outputs.sha }}
+          persist-credentials: false
+
+      - name: Download validated package
+        uses: actions/download-artifact@v4
+        with:
+          name: opencodex-${{ needs.integrate.outputs.tag }}
+          path: .cicd-package
+
+      - name: Install local OpenCodex with rollback
+        shell: pwsh
+        run: |
+          $packages = @(Get-ChildItem -LiteralPath .cicd-package -Filter *.tgz -File)
+          if ($packages.Count -ne 1) { throw "Expected exactly one OpenCodex package, found $($packages.Count)" }
+          ./scripts/cicd/deploy-local-windows.ps1 -PackagePath $packages[0].FullName
