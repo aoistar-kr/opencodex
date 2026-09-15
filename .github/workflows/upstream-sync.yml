@@ -127,6 +127,12 @@ jobs:
           cd gui
           bun install --frozen-lockfile
 
+      - name: Custom invariant regression gate
+        if: steps.detect.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun run test:custom-invariants
       - name: Fail-closed verification
         if: steps.detect.outputs.changed == 'true'
         shell: bash
