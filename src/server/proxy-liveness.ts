@@ -10,6 +10,7 @@
  * Lives outside cli.ts (which dispatches argv at module top level) so tests can import it.
  */
 import { loadConfig } from "../config";
+import { isWildcardHostname } from "../codex/loopback-target";
 import { readAlivePid, readRuntimePort, verifyPidIdentity } from "../config/process-state";
 import { directLocalHttpFetch } from "./direct-local-http";
 
@@ -22,6 +23,7 @@ export interface HealthzIdentity {
   port?: unknown;
   restartCapability?: unknown;
   providerReloadCapability?: unknown;
+  guiPairCapability?: unknown;
 }
 
 export interface LivenessIo {
@@ -81,10 +83,15 @@ export interface LiveProxy {
 /**
  * Host to probe for a given bind hostname: wildcards answer on IPv4 loopback, and raw
  * IPv6 addresses must be bracketed or the composed URL is invalid.
+ *
+ * The wildcard test is `isWildcardHostname`, not a list of spellings. This function used to
+ * know exactly three (`0.0.0.0`, `::`, `[::]`) while the bind-scope predicate knew every
+ * all-zero form, so `ocx` composed `http://0.0.0.0.:10100` or `http://*:10100` — unreachable
+ * URLs — for a config the server itself treated as a wildcard bind. One predicate, both sides.
  */
 export function probeHostname(hostname: string | undefined): string {
   const trimmed = (hostname ?? "").trim();
-  if (!trimmed || trimmed === "0.0.0.0" || trimmed === "::" || trimmed === "[::]") return "127.0.0.1";
+  if (!trimmed || isWildcardHostname(trimmed)) return "127.0.0.1";
   if (trimmed.startsWith("[") && trimmed.endsWith("]")) return trimmed;
   return trimmed.includes(":") ? `[${trimmed}]` : trimmed;
 }
@@ -269,6 +276,12 @@ interface ReadyzBody {
   pid?: unknown;
   port?: unknown;
   status?: unknown;
+  // Remote protocol metadata is intentionally additive here. Ordinary
+  // readiness remains compatible with legacy standalone servers; `ocx connect`
+  // validates these fields separately in src/remote/protocol.ts.
+  protocol?: unknown;
+  minimumClientProtocol?: unknown;
+  managementUrl?: unknown;
 }
 
 export interface ReadinessProbeResult {

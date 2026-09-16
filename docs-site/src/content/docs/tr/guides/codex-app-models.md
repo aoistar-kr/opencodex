@@ -144,8 +144,7 @@ yerel yetenekleri kaldırır.
 
 ## Mevcut kararlı model kapsamı
 
-Yerel geri dönüş kümesi `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`,
-`gpt-5.3-codex-spark` ve GPT-5.6 Sol/Terra/Luna modellerini içerir. GPT-5.5/5.4
+Yerel geri dönüş kümesi `gpt-5.5` ve GPT-5.6 Sol/Terra/Luna modellerini içerir. GPT-5.5
 ailesi için opencodex, kurulu Codex kataloğunun daha zengin canlı girdilerini
 korur ve yalnızca eksik bir girdiyi sentezler. Paketlenmiş yukarı akış anlık
 görüntüsü yalnızca eski şablon yaklaşımı yerine gerçek model başına kimliği ve
@@ -301,7 +300,7 @@ ya da doğrudan gönderin:
 ocx access test anthropic/claude-sonnet-5 --protocol responses
 ```
 
-Her iki yol da **istek proxy'ye ulaştıktan sonra** doğru yönlendirilir; bu testlerle kapsanıyor. Kanıtlanmayan nokta, rezerv modu etkinken uygulamanın yapılandırılan modeli hâlâ gönderip göndermediğidir; istemci onu göndermeden önce değiştirir ya da reddederse proxy tarafındaki hiçbir ayar bunu değiştirmez. Açık seçimi doğrulanmış bir geçici çözüm değil, denemeye değer bir yol olarak görün.
+Her iki yol da **istek proxy'ye ulaştıktan sonra** doğru yönlendirilir; bu testlerle kapsanıyor. Ancak Codex masaüstü uygulaması rezerv modu etkinken yapılandırılan modeli göndermez: rezerv durumunu kendi `wham/usage` sorgusundan (`luna_reserve` upsell'i ve hâlâ izinli bir `gpt-reserve` ek limiti) belirler ve istek çıkmadan önce model ayarını `gpt-reserve` olarak zorlar; bu yüzden `config.toml` yolu uygulama içinde ezilir. Pencere sıfırlanana kadar `ocx access test`, proxy üzerinden Claude Code (`ocx claude`) ya da doğrudan bir `/v1` istemcisi kullanın. Bkz. [Codex rezerv modunda yönlendirilmiş modeller](/guides/codex-integration/#routed-models-during-codex-reserve-mode).
 
 
 Seçici hala eski girdileri gösteriyorsa kataloğu yenileyin ve hedef Codex

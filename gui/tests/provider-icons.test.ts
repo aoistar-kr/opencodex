@@ -74,3 +74,46 @@ test("the MiniMax and Xiaomi MiMo provider ids resolve to their brand's mark", (
   // The precedent that makes the two above consistent rather than novel.
   expect(providerIconSrc("mimo-free")).toBe("/provider-icons/xiaomi-color.svg");
 });
+
+/*
+ * One brand, two credentials.
+ *
+ * `meta-model` is Meta's own pay-as-you-go Model API and `meta-muse` imports the
+ * Muse Code CLI's credential. They are separate providers with separate billing
+ * and separate ToS risk, but they are the same company's mark -- the same shape
+ * as the three Alibaba plan ids sharing one asset.
+ *
+ * Pinned explicitly rather than left to the generic wiring check above, because
+ * that check only fires when an asset named after the id is already committed.
+ * Neither id is `meta`, so a dropped alias row here would restore the fallback
+ * tile silently.
+ */
+test("both Meta provider ids resolve to the Meta mark", () => {
+  expect(providerIconSrc("meta-model")).toBe("/provider-icons/meta.svg");
+  expect(providerIconSrc("meta-muse")).toBe("/provider-icons/meta.svg");
+});
+
+/*
+ * One brand, two operators.
+ *
+ * `qoder` (BRIGHT ZENITH PRIVATE LIMITED) and `qoder-cn` (通义云启（杭州）信息技术有限公司)
+ * share Qoder's declared site icon, the meta-model/meta-muse shape. Pinned explicitly
+ * for the same reason as the Meta pair: the generic wiring check only fires when an
+ * asset named after the id is committed, and `qoder-cn` is not `qoder`.
+ *
+ * CodeBuddy is the opposite decision and is pinned too. Tencent publishes a usable
+ * symbol, but §9.3 of the CodeBuddy service agreement forbids using Tencent brand
+ * features without written consent, so both ids keep the initials tile on purpose.
+ * Nothing else can tell "absent by decision" from "forgotten"; this can.
+ */
+test("both Qoder provider ids resolve to the Qoder mark", () => {
+  expect(providerIconSrc("qoder")).toBe("/provider-icons/qoder.svg");
+  expect(providerIconSrc("qoder-cn")).toBe("/provider-icons/qoder.svg");
+});
+
+test("CodeBuddy keeps the initials tile by decision, not by omission", () => {
+  expect(providerIconSrc("codebuddy")).toBeUndefined();
+  expect(providerIconSrc("codebuddy-cn")).toBeUndefined();
+  expect(existsSync(join(PUBLIC_DIR, "codebuddy.svg"))).toBe(false);
+  expect(existsSync(join(PUBLIC_DIR, "codebuddy-cn.svg"))).toBe(false);
+});

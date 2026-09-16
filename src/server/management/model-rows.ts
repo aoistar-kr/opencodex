@@ -11,6 +11,7 @@
 import type { CatalogModel } from "../../codex/catalog";
 import {
   catalogModelSlug,
+  filterCatalogVisibleModels,
   accountBoundNativeOpenAiSlugsBySelector,
   nativeDefaultReasoningEffort,
   NATIVE_OPENAI_MODELS,
@@ -27,6 +28,9 @@ import { routedSlug, slugEquals } from "../../providers/slug-codec";
 import type { OcxConfig } from "../../types";
 import { ensureCodexEntitlementFreshness } from "../../codex/model-entitlements";
 import { fetchAllModels } from "./shared";
+import { initialModelSelectionPending } from "../../providers/initial-model-selection";
+import { catalogFastRowEligible, fastRowId } from "../fast-row";
+import { knownEffortRowIds } from "../effort-row";
 
 /**
  * One row of the `/api/models` list. Routed rows spread a `CatalogModel`, so the shape is
@@ -38,10 +42,33 @@ export type ManagementModelRow = Partial<CatalogModel> & {
   id: string;
   namespaced: string;
   disabled: boolean;
+  initialSelectionPending?: boolean;
   native?: boolean;
   custom?: boolean;
   customId?: string;
+  manualPricing?: boolean;
+  fastRowAvailable?: boolean;
+  displayNameOverride?: string;
+  displayNameSource?: "operator" | "provider" | "fallback";
 };
+
+/** Resolve the exact text and source shown for one routed discovered model. */
+export function effectiveManagementDisplayName(
+  config: Pick<OcxConfig, "providers">,
+  model: CatalogModel,
+): Pick<ManagementModelRow, "displayName" | "displayNameOverride" | "displayNameSource"> {
+  const provider = config.providers[model.provider];
+  const configured = provider?.modelDisplayNames;
+  if (configured && Object.hasOwn(configured, model.id)) {
+    const displayName = configured[model.id]?.trim();
+    if (displayName) {
+      return { displayName, displayNameOverride: displayName, displayNameSource: "operator" };
+    }
+  }
+  const providerDisplayName = model.displayName?.trim();
+  if (providerDisplayName) return { displayName: providerDisplayName, displayNameSource: "provider" };
+  return { displayName: catalogModelSlug(model), displayNameSource: "fallback" };
+}
 
 /**
  * The exact row list `/api/models` returns. Extracted so `/api/client-config` exports the
@@ -120,10 +147,25 @@ export async function listManagementModelRows(
     };
   });
   const publicModels = uniqueCatalogModelsForPublicList(models);
+  // Custom rows below are REBUILT from config.customModels rather than spread from a
+  // CatalogModel, so every field gather computed for the same slug has to be carried across by
+  // hand. Without this a custom model whose provider is out of credit would be the one row on
+  // the page that never shows as inactive (#1711), because the gather-derived row it replaces
+  // is dropped by the slug dedup below.
+  const quotaInactiveByNamespaced = new Map(
+    publicModels
+      .filter(model => model.quotaInactiveReason !== undefined)
+      .map(model => [catalogModelSlug(model), model.quotaInactiveReason!] as const),
+  );
   const comboNamespaced = new Set(
     publicModels.filter(model => model.provider === "combo").map(catalogModelSlug),
   );
-  const visibleCustomModels = customModels.filter(model => !comboNamespaced.has(model.namespaced));
+  const visibleCustomModels = customModels
+    .filter(model => !comboNamespaced.has(model.namespaced))
+    .map(model => {
+      const quotaInactiveReason = quotaInactiveByNamespaced.get(model.namespaced);
+      return quotaInactiveReason ? { ...model, quotaInactiveReason } : model;
+    });
   // Custom metadata wins when a physical live/static row resolves to the same Codex-facing
   // slug, while a combo keeps the same precedence it has in routing and /v1/models.
   const customNamespaced = new Set(visibleCustomModels.map(c => c.namespaced));
@@ -133,8 +175,10 @@ export async function listManagementModelRows(
     if (m.provider !== "combo" && customNamespaced.has(namespaced)) return null;
     const contextCap = providerContextCap(config, m.provider);
     const nativeAlias = m.provider === "combo" && m.nativeAlias === true;
+    const displayName = effectiveManagementDisplayName(config, m);
     return {
       ...m,
+      ...displayName,
       namespaced,
       disabled: [...disabled].some(stored => (
         (!nativeAlias && stored === namespaced) || slugEquals(stored, m.provider, m.id)
@@ -142,7 +186,28 @@ export async function listManagementModelRows(
       ...(contextCap !== undefined ? { contextCap, contextCapped: m.contextCapped === true } : {}),
     };
   }).filter((row): row is ManagementModelRow => row !== null);
-  return [...native, ...dedupedRouted, ...visibleCustomModels];
+  // Manual OpenAI rows retain their routed selector but replace the bare dashboard row.
+  // Account-qualified rows remain distinct, explicitly selected routes.
+  const visibleNative = native.filter(model => model.id.includes("/")
+    || !customNamespaced.has(routedSlug(model.provider, model.id)));
+  const rows = [...visibleNative, ...dedupedRouted, ...visibleCustomModels];
+  // Include disabled rows and configured aliases before the export visibility filter:
+  // a hidden real `x--fast` must never become a synthetic selector for another model.
+  const knownIds = config.fastRows === false ? new Set<string>() : knownEffortRowIds(config);
+  for (const row of rows) knownIds.add(row.namespaced);
+  return rows.map(row => {
+    const pending = initialModelSelectionPending(config.providers[row.provider]);
+    const modelCosts = Object.hasOwn(config.providers, row.provider)
+      ? config.providers[row.provider]?.modelCosts : undefined;
+    return {
+      ...row,
+      ...(!row.native && modelCosts !== undefined && Object.hasOwn(modelCosts, row.id)
+        ? { manualPricing: true } : {}),
+      ...(pending ? { disabled: true, initialSelectionPending: true } : {}),
+      fastRowAvailable: !row.disabled && !pending
+        && !knownIds.has(fastRowId(row.namespaced)) && catalogFastRowEligible(config, row),
+    };
+  });
 }
 
 /** `/api/models` row → the narrower input the client-config serializers accept. */
@@ -151,8 +216,9 @@ export function toExportModel(row: ManagementModelRow): ExportModel {
     namespaced: row.namespaced,
     provider: row.provider,
     id: row.id,
+    fastRowAvailable: row.fastRowAvailable === true,
     ...(row.native ? { native: true } : {}),
-    ...(row.displayName ? { displayName: row.displayName } : {}),
+    ...(row.displayName && row.displayNameSource !== "fallback" ? { displayName: row.displayName } : {}),
     ...(row.contextWindow !== undefined ? { contextWindow: row.contextWindow } : {}),
     ...(row.inputModalities ? { inputModalities: row.inputModalities } : {}),
     ...(row.reasoningEfforts ? { reasoningEfforts: row.reasoningEfforts } : {}),
@@ -172,5 +238,8 @@ export function toExportModel(row: ManagementModelRow): ExportModel {
  */
 export async function loadExportModels(config: OcxConfig): Promise<ExportModel[]> {
   const rows = await listManagementModelRows(config);
-  return rows.filter(row => !row.disabled).map(toExportModel);
+  // Management deliberately lists the full roster so hidden models can be enabled.
+  // A client picker must also honor the provider selection, not just its blocklist.
+  const visibleRouted = new Set(filterCatalogVisibleModels(rows.filter(row => !row.native), config));
+  return rows.filter(row => !row.disabled && (row.native || visibleRouted.has(row))).map(toExportModel);
 }

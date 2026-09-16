@@ -38,14 +38,17 @@ import type { RawEntry } from "./parsing";
 import { readCurrentCatalogOrCache, readCurrentCodexCatalog, readCurrentCodexModelsCache, unique } from "./bundled";
 import { trustedAccountBoundNativeCatalogSlug, visibleCodexAccountSelectors } from "./account-models";
 import { CODEX_NATIVE_ALIAS_CATALOG_KIND } from "./kinds";
+import { RESERVE_METADATA_SOURCE_FIELD } from "./reserve";
 import {
   ACCOUNT_GATED_NATIVE_OPENAI_MODELS,
   NATIVE_DAYBREAK_BLUE_MODEL,
   NATIVE_GPT6_ASTRA_MODEL,
+  NATIVE_RESERVE_MODEL,
   NATIVE_OPENAI_CAPABILITY_ALIAS_MODELS,
   NATIVE_OPENAI_MODELS,
   SELF_DESCRIBED_NATIVE_OPENAI_MODELS,
   SUPPORTED_NATIVE_OPENAI_SLUGS,
+  RETIRED_NATIVE_OPENAI_MODELS,
   hasNativeOpenAiCapabilityMetadata,
   isNativeOpenAiCapabilityAliasModel,
   nativeOpenAiAliasPresentation,
@@ -61,6 +64,7 @@ export {
   NATIVE_OPENAI_MODELS,
   SELF_DESCRIBED_NATIVE_OPENAI_MODELS,
   SUPPORTED_NATIVE_OPENAI_SLUGS,
+  RETIRED_NATIVE_OPENAI_MODELS,
   hasNativeOpenAiCapabilityMetadata,
   isNativeOpenAiCapabilityAliasModel,
   nativeOpenAiAliasPresentation,
@@ -68,8 +72,8 @@ export {
 } from "./native-models";
 
 export const DOCUMENTED_NATIVE_OPENAI_ADDITIONS = [
-  "gpt-5.3-codex-spark",
   "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
+  // The shipped pin also backfills older installed Codex catalogs that predate Astra.
   NATIVE_GPT6_ASTRA_MODEL,
 ];
 
@@ -117,8 +121,7 @@ export function isUnsupportedOpenAiNativeSlug(slug: string): boolean {
  *
  * This is an OPERATING CAP, not the hard ceiling — the same shape upstream uses. The live
  * catalog reports `context_window: 272000` against a `max_context_window: 872000` for these
- * slugs, and gpt-5.4 runs 272,000 against 1,000,000: the advertised window is always well
- * inside what the model can take.
+ * slugs: the advertised window is always well inside what the model can take.
  *
  * The hard ceiling here was measured on 2026-08-17 against a real Codex-login account:
  * `POST /backend-api/codex/responses` admitted 921,508 input tokens and refused 922,013 with
@@ -159,8 +162,6 @@ const NATIVE_GPT56_FAMILY = new Set<string>([
 
 export const NATIVE_OPENAI_CONTEXT_OVERRIDES: Record<string, { contextWindow?: number; maxContextWindow?: number; maxInputTokens?: number }> = {
   "gpt-5.5": { contextWindow: 272_000, maxContextWindow: 272_000 },
-  "gpt-5.4": { contextWindow: 1_000_000, maxContextWindow: 1_000_000 },
-  "gpt-5.3-codex-spark": { contextWindow: 100_000, maxContextWindow: 100_000 },
   "gpt-5.6-sol": { contextWindow: NATIVE_GPT56_CONTEXT_WINDOW, maxContextWindow: NATIVE_GPT56_MAX_INPUT_TOKENS, maxInputTokens: NATIVE_GPT56_MAX_INPUT_TOKENS },
   "gpt-5.6-terra": { contextWindow: NATIVE_GPT56_CONTEXT_WINDOW, maxContextWindow: NATIVE_GPT56_MAX_INPUT_TOKENS, maxInputTokens: NATIVE_GPT56_MAX_INPUT_TOKENS },
   "gpt-5.6-luna": { contextWindow: NATIVE_GPT56_CONTEXT_WINDOW, maxContextWindow: NATIVE_GPT56_MAX_INPUT_TOKENS, maxInputTokens: NATIVE_GPT56_MAX_INPUT_TOKENS },
@@ -170,7 +171,11 @@ export const NATIVE_OPENAI_CONTEXT_OVERRIDES: Record<string, { contextWindow?: n
   // ChatGPT account."`), so the promotion rests on a report from an account that has
   // access rather than on a probe. Treat it as the weaker evidence of the four.
   [NATIVE_DAYBREAK_BLUE_MODEL]: { contextWindow: NATIVE_GPT56_CONTEXT_WINDOW, maxContextWindow: NATIVE_GPT56_MAX_INPUT_TOKENS, maxInputTokens: NATIVE_GPT56_MAX_INPUT_TOKENS },
-  // Shipped Astra row: 272k default window with an 872k long-window ceiling.
+  // gpt-6-astra ships its own numbers (upstream models.json, #42607): a 272,000 default window
+  // against an 872,000 ceiling. It is NOT in NATIVE_GPT56_FAMILY, so it must not inherit that
+  // family's measured 922,000 clamp — advertising 922,000 here over-stated the ceiling by 50k.
+  // maxInputTokens is clamped to the resolved window by nativeOpenAiMaxInputTokens, so this reads
+  // 272,000 by default and 872,000 only under the long-window opt-in.
   [NATIVE_GPT6_ASTRA_MODEL]: { contextWindow: 272_000, maxContextWindow: 872_000, maxInputTokens: 872_000 },
 };
 
@@ -256,16 +261,29 @@ export function nativeContextLimits(
   };
 }
 
+/** Apply the user levers to an authoritative value. */
+/**
+ * The ceiling a native slug may be RAISED to by a user lever, or undefined when it has no
+ * separate long window.
+ *
+ * This is what makes the dashboard's 1M opt-in work: without an opt-in ceiling a lever can only
+ * ever narrow the advertised window, so the toggle would appear to do nothing. The GPT-5.6 family
+ * shares one measured ceiling; a self-described native carries its own in
+ * `NATIVE_OPENAI_CONTEXT_OVERRIDES.maxContextWindow` (`gpt-6-astra` ships 872,000 against a
+ * 272,000 default), and reading it per-slug is what keeps the toggle honest for a model whose
+ * ceiling is not the family's.
+ */
 function longWindowOptInCeiling(slug: string): number | undefined {
   if (NATIVE_GPT56_FAMILY.has(slug)) return NATIVE_GPT56_MAX_INPUT_TOKENS;
   const override = NATIVE_OPENAI_CONTEXT_OVERRIDES[slug];
   const defaultWindow = positiveInt(override?.contextWindow);
   const longWindow = positiveInt(override?.maxContextWindow);
-  if (defaultWindow === undefined || longWindow === undefined || longWindow <= defaultWindow) return undefined;
+  if (defaultWindow === undefined || longWindow === undefined || longWindow <= defaultWindow) {
+    return undefined;
+  }
   return longWindow;
 }
 
-/** Apply the user levers to an authoritative value. */
 function narrowToLimits(raw: number | undefined, slug: string, input: NativeContextLimitsInput): number | undefined {
   if (raw === undefined) return undefined;
   const limits = asLimits(input);
@@ -279,8 +297,6 @@ function narrowToLimits(raw: number | undefined, slug: string, input: NativeCont
     return overlay !== undefined && cap !== undefined ? Math.min(window, cap) : window;
   }
   const narrowed = overlay === undefined ? raw : Math.min(raw, overlay);
-  // 922k is the GPT-5.6 1M opt-in, not a request to shrink gpt-5.4's 1M window.
-  if (cap === NATIVE_GPT56_MAX_INPUT_TOKENS) return narrowed;
   return applyProviderContextCap(narrowed, cap) ?? narrowed;
 }
 
@@ -297,6 +313,16 @@ export function nativeOpenAiMaxOutputTokens(slug: string): number | undefined {
   return positiveInt(getModelMetadata("openai", sourceSlug)?.maxTokens);
 }
 
+/**
+ * Long-context tier for a native slug as a (default, long) pair, for clients that let the user
+ * pick a window per request (Cursor's local-agent "Context" selector). The pair is the family's
+ * pinned default window and its opt-in ceiling, independent of whether the operator has
+ * already opted the proxy into the long window: the selector exists so the client can choose.
+ * Any user lever below the long window removes the tier: a per-model window override, the
+ * provider-level window override, or a provider context cap. A lever at or above it leaves the
+ * tier intact (the 922k/1050k opt-in values are the levers, not a request to shrink). Undefined
+ * when the family has no separate tier or when the two windows coincide.
+ */
 export function nativeOpenAiContextTier(
   slug: string,
   limits?: NativeContextLimitsInput,
@@ -350,8 +376,7 @@ export function nativeInputModalities(slug: string): string[] {
   if (Array.isArray(upstream?.input_modalities) && upstream!.input_modalities!.length > 0) {
     return [...upstream!.input_modalities as string[]];
   }
-  // gpt-5.3-codex-spark is not in the upstream snapshot; all supported natives are
-  // text+image capable, so default to the family baseline rather than text-only.
+  // Without a pinned row, retain the native family modality baseline.
   return ["text", "image"];
 }
 
@@ -365,7 +390,7 @@ export function nativeReasoningEfforts(slug: string): string[] {
     // include ultra while Luna intentionally ends at max.
     return levels.flatMap(l => typeof l.effort === "string" ? [l.effort] : []);
   }
-  // gpt-5.3-codex-spark is not in upstream snapshot — use the standard old-ladder default.
+  // Without a pinned row, use the standard old-ladder default.
   return ["low", "medium", "high", "xhigh"];
 }
 
@@ -507,7 +532,13 @@ export function applyNativeVisibility(
 
 function upstreamNativeEntryForSlug(slug: string): RawEntry | undefined {
   const sourceSlug = nativeOpenAiCapabilitySourceSlug(slug);
-  if (!sourceSlug.startsWith("gpt-5.6-") && !SELF_DESCRIBED_NATIVE_OPENAI_MODELS.has(slug)) return undefined;
+  // A self-described native returns its OWN pinned row; the alias-cloning branch below stays
+  // reserved for slugs that genuinely borrow another model's identity. The allowlist is explicit
+  // rather than "has a pinned entry", which would also admit gpt-5.5/gpt-5.2/codex-auto-review into
+  // the sync-replacement authority this map carries.
+  if (!sourceSlug.startsWith("gpt-5.6-") && !SELF_DESCRIBED_NATIVE_OPENAI_MODELS.has(slug)) {
+    return undefined;
+  }
   const source = PINNED_UPSTREAM_MODELS.get(sourceSlug);
   if (!source) return undefined;
   if (slug === sourceSlug) return withDerivedBaseInstructions(source);
@@ -515,7 +546,7 @@ function upstreamNativeEntryForSlug(slug: string): RawEntry | undefined {
   const alias = structuredClone(source) as RawEntry;
   alias.slug = slug;
   const presentation = nativeOpenAiAliasPresentation(slug);
-  if (!presentation) return undefined;
+  if (!presentation) return undefined; // an alias with no product identity must not ship a wrong one
   alias.display_name = presentation.displayName;
   alias.description = presentation.description;
   if (typeof alias.base_instructions === "string") {
@@ -534,6 +565,17 @@ function upstreamNativeEntryForSlug(slug: string): RawEntry | undefined {
   return alias;
 }
 
+/**
+ * Backfill `base_instructions` from `model_messages.instructions_template` when upstream ships
+ * only the latter.
+ *
+ * `gpt-6-astra` is the first pinned row to arrive without a top-level `base_instructions`; every
+ * other native carries both. That field is not decorative here — `hasNativeCatalogRowShape`,
+ * `findNativeTemplate` and `findSupportedNativeTemplate` all test for it, so a row missing it is
+ * not recognized as a native catalog row at all. The two fields hold the same prompt upstream, so
+ * deriving one from the other preserves upstream's content while keeping this codebase's row
+ * shape intact. The pinned JSON is left byte-identical to upstream; only the projection fills in.
+ */
 function withDerivedBaseInstructions(entry: RawEntry): RawEntry {
   if (typeof entry.base_instructions === "string" && entry.base_instructions.length > 0) return entry;
   const messages = entry.model_messages;
@@ -559,6 +601,13 @@ export function upstreamNativeEntry(slug: string): RawEntry | null {
   return clone;
 }
 
+/**
+ * Product label for a native slug whose custom row inherits native metadata.
+ *
+ * An alias carries a hand-written presentation because upstream never described it. A
+ * self-described native gets its label from its own pinned row instead, so the two kinds answer
+ * through one accessor and no caller has to know which it holds.
+ */
 export function nativeOpenAiCapabilityDisplayName(slug: string): string | undefined {
   const presentation = nativeOpenAiAliasPresentation(slug);
   if (presentation) return presentation.displayName;
@@ -566,11 +615,28 @@ export function nativeOpenAiCapabilityDisplayName(slug: string): string | undefi
   return typeof pinned?.display_name === "string" ? pinned.display_name : undefined;
 }
 
+/**
+ * Slugs whose persisted row may be replaced by the pinned snapshot even when it carries a real
+ * display name — because THIS codebase wrote that name from a guess.
+ *
+ * `shouldUpgradeToUpstreamEntry`'s normal rule ("upgrade only fallback-quality rows, where
+ * `display_name === slug`") assumes any row with a real label came from upstream and is therefore
+ * authoritative. That assumption broke for `gpt-6-astra`: opencodex shipped a speculative row with
+ * a hand-written "GPT-6 Astra" label and a provisional description while the slug was still a leak.
+ * Those rows are already on disk in every install that ran that release, and they look genuine, so
+ * without this list they would survive every future sync and permanently shadow the real shipped
+ * metadata — the wrong label, the wrong 922k ceiling, the wrong priority.
+ *
+ * Membership is a statement about opencodex's own history, not about upstream. Add a slug only
+ * when a released version of this project wrote a fabricated row for it.
+ */
 const SELF_AUTHORED_NATIVE_ROWS: ReadonlySet<string> = new Set([NATIVE_GPT6_ASTRA_MODEL]);
 
 export function shouldUpgradeToUpstreamEntry(entry: RawEntry): boolean {
   if (typeof entry.slug !== "string" || !UPSTREAM_NATIVE_ENTRIES.has(entry.slug)) return false;
   if (entry.display_name === entry.slug) return true;
+  // A row this project authored from a guess is not evidence of upstream truth, however genuine
+  // its display name looks. Replace it once, from the pin.
   return SELF_AUTHORED_NATIVE_ROWS.has(entry.slug)
     && entry.display_name !== UPSTREAM_NATIVE_ENTRIES.get(entry.slug)?.display_name;
 }
@@ -599,7 +665,7 @@ function isAccountBoundOpenAiNativeSlug(slug: string): boolean {
  * malformed and minimal hand-written rows. It cannot distinguish a genuine upstream observation
  * from a complete row typed by hand into `$CODEX_HOME/models_cache.json`: there is no signature,
  * source identity, or server attestation to check. A full-shape forged row is accepted, and
- * `observedFullShapeRowIsAccepted` in tests/native-model-toggle.test.ts pins that so nobody
+ * `observedFullShapeRowIsAccepted` in tests/codex-integration/native-model-toggle.test.ts pins that so nobody
  * later mistakes this predicate for a security boundary.
  *
  * That is acceptable here because the file is user-owned and written by Codex itself: anyone
@@ -627,13 +693,47 @@ function hasNativeCatalogRowShape(entry: RawEntry): boolean {
 function observedAccountBoundNativeSlug(entry: RawEntry): string | undefined {
   const accountBound = trustedAccountBoundNativeCatalogSlug(entry);
   const slug = accountBound ?? (typeof entry.slug === "string" ? entry.slug : "");
+  // A retired native is refused at this one choke point rather than at each call site: every
+  // observation path funnels through here, and an admitted retired slug comes back as a real
+  // catalog row — bare or account-qualified — with capabilities synthesized from the template.
+  if (RETIRED_NATIVE_OPENAI_MODELS.has(slug)) return undefined;
   if (!isAccountBoundOpenAiNativeSlug(slug)
-    || entry.supported_in_api !== true
+    || (entry.supported_in_api !== true && !(slug === NATIVE_RESERVE_MODEL && entry.supported_in_api === false))
+    || (slug === NATIVE_RESERVE_MODEL && entry[RESERVE_METADATA_SOURCE_FIELD] !== undefined
+      && entry[RESERVE_METADATA_SOURCE_FIELD] !== NATIVE_RESERVE_MODEL)
     || !hasNativeCatalogRowShape(entry)
-    || (entry.visibility !== "list" && entry[ACCOUNT_BOUND_OBSERVED_NATIVE_MARKER] !== true)) {
+    || (entry.visibility !== "list" && entry[ACCOUNT_BOUND_OBSERVED_NATIVE_MARKER] !== true
+      && !(slug === NATIVE_RESERVE_MODEL && entry.visibility === "hide"))) {
     return undefined;
   }
   return slug;
+}
+
+/** Prefer a genuine bare observation; an adapted OCX row must never become native evidence. */
+export function observedReserveCatalogSource(
+  entries: readonly RawEntry[],
+  mainSelectors: readonly string[],
+): RawEntry | null {
+  const actual = entries.filter(entry => observedAccountBoundNativeSlug(entry) === NATIVE_RESERVE_MODEL);
+  const bare = actual.find(entry => entry.slug === NATIVE_RESERVE_MODEL);
+  const qualified = actual.find(entry => entry[RESERVE_METADATA_SOURCE_FIELD] === NATIVE_RESERVE_MODEL
+    && typeof entry.slug === "string"
+    && mainSelectors.includes(entry.slug.slice(0, entry.slug.indexOf("/"))));
+  const selected = bare ?? qualified;
+  if (!selected) return null;
+  const source = structuredClone(selected);
+  if (!bare) {
+    const prefix = `${String(source.slug).split("/")[0]} / `;
+    if (typeof source.display_name === "string" && source.display_name.startsWith(prefix)) {
+      source.display_name = source.display_name.slice(prefix.length);
+    }
+  }
+  source.slug = NATIVE_RESERVE_MODEL;
+  delete source.opencodex_catalog_kind;
+  delete source[RESERVE_METADATA_SOURCE_FIELD];
+  delete source[ACCOUNT_BOUND_OBSERVED_NATIVE_MARKER];
+  delete source[ACCOUNT_BOUND_OBSERVED_SELECTORS_MARKER];
+  return source;
 }
 
 /**
@@ -676,7 +776,8 @@ export function accountBoundNativeOpenAiSlugs(
 ): string[] {
   const observed = observedEntries.flatMap(entry => {
     const slug = observedAccountBoundNativeSlug(entry);
-    return slug === undefined ? [] : [slug];
+    // Reserve belongs only to the Codex-specific opt-in builder, not generic native exports.
+    return slug === undefined || slug === NATIVE_RESERVE_MODEL ? [] : [slug];
   });
   return unique([...NATIVE_OPENAI_MODELS, ...observed]);
 }
@@ -703,7 +804,7 @@ export function accountBoundNativeOpenAiSlugsBySelector(
   );
   for (const entry of observedEntries) {
     const slug = observedAccountBoundNativeSlug(entry);
-    if (slug === undefined || SUPPORTED_NATIVE_OPENAI_SLUGS.has(slug)) continue;
+    if (slug === undefined || slug === NATIVE_RESERVE_MODEL || SUPPORTED_NATIVE_OPENAI_SLUGS.has(slug)) continue;
     const generated = trustedAccountBoundNativeCatalogSlug(entry);
     const generatedSelector = generated === undefined || typeof entry.slug !== "string"
       ? undefined
@@ -750,7 +851,7 @@ function catalogNativeSlugs(): string[] {
 }
 
 export function listCatalogNativeSlugs(): string[] {
-  // Ensure documented additions (e.g. gpt-5.3-codex-spark) appear even when the bundled catalog
+  // Ensure documented additions (e.g. gpt-6-astra) appear even when the bundled catalog
   // predates the slug — mirrors nativeOpenAiSlugs() which already merges them for /v1/models.
   return unique([...catalogNativeSlugs(), ...DOCUMENTED_NATIVE_OPENAI_ADDITIONS]);
 }

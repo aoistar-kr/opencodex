@@ -3,6 +3,7 @@ import {
   CODEX_STANDALONE_WEB_RUN_WIRE_NAME,
   codexStandaloneWebRunAuthorized,
 } from "../src/codex/standalone-web-search-authority";
+import { normalizeRoutedCatalogEntry } from "../src/codex/catalog/parsing";
 
 const enabledConfig = `
 [features]
@@ -42,5 +43,15 @@ describe("Codex standalone web.run authority", () => {
     )).toBe(false);
     expect(codexStandaloneWebRunAuthorized("opencode-go", codex, { readConfig: () => "not = [valid" })).toBe(false);
     expect(codexStandaloneWebRunAuthorized("opencode-go", codex, { readConfig: () => { throw new Error("missing"); } })).toBe(false);
+  });
+
+  test("OpenCode Go keeps deferred tool discovery but never advertises hosted web search", () => {
+    const entry = normalizeRoutedCatalogEntry({
+      slug: "opencode-go/fixture",
+      web_search_tool_type: "text_and_image",
+      supports_search_tool: false,
+    } as never);
+    expect(entry.web_search_tool_type).toBeUndefined();
+    expect(entry.supports_search_tool).toBe(true);
   });
 });

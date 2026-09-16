@@ -1,3 +1,5 @@
+import { idleDeadline } from "./abort";
+
 /** Maximum number of response-body bytes that may be retained for an error. */
 export const BOUNDED_BODY_MAX_BYTES = 65_536;
 
@@ -49,6 +51,8 @@ export interface BoundedBytesOptions {
 	signal?: AbortSignal;
 	/** Maximum number of raw bytes retained from the response body. */
 	maxBytes: number;
+	/** Deadline between non-empty raw chunks. Omitted means no body-read deadline. */
+	inactivityTimeoutMs?: number;
 }
 
 export interface BoundedBytesResult {
@@ -136,6 +140,15 @@ export async function readBoundedResponseBytes(
 	let retainedBytes = 0;
 	let mustCancel = false;
 	let cancelReason: unknown;
+	const inactivityReason = new DOMException("Response body stalled", "TimeoutError");
+	let rejectForInactivity: ((reason: unknown) => void) | undefined;
+	const inactive = new Promise<never>((_resolve, reject) => {
+		rejectForInactivity = reject;
+	});
+	const inactivity = options.inactivityTimeoutMs === undefined
+		? null
+		: idleDeadline(options.inactivityTimeoutMs, () => rejectForInactivity?.(inactivityReason));
+	inactivity?.reset();
 
 	let rejectForAbort: ((reason: unknown) => void) | undefined;
 	const aborted = new Promise<never>((_resolve, reject) => {
@@ -151,7 +164,7 @@ export async function readBoundedResponseBytes(
 			const read = reader.read();
 			// Observe a late read rejection when abort/cancellation wins the race.
 			void read.catch(() => undefined);
-			const outcome = await Promise.race([read, aborted]);
+			const outcome = await Promise.race([read, aborted, inactive]);
 			if (signal?.aborted) {
 				mustCancel = true;
 				cancelReason = signal.reason;
@@ -163,6 +176,7 @@ export async function readBoundedResponseBytes(
 				return { bytes: retained.subarray(0, retainedBytes), oversized: false };
 			}
 			if (!value || value.byteLength === 0) continue;
+			inactivity?.reset();
 
 			if (value.byteLength > maxBytes - retainedBytes) {
 				mustCancel = true;
@@ -187,6 +201,7 @@ export async function readBoundedResponseBytes(
 		cancelReason = error;
 		throw error;
 	} finally {
+		inactivity?.cancel();
 		signal?.removeEventListener("abort", onAbort);
 		if (mustCancel) cancelWithoutWaiting(reader, cancelReason);
 		try {
@@ -197,13 +212,28 @@ export async function readBoundedResponseBytes(
 	}
 }
 
-function decodeUtf8(chunks: readonly Uint8Array[], fatal: boolean): string {
+// Mark only exceptions thrown by our decoder, preserving their identity and TypeError contract.
+// Timeout-path flushing may fail too; retain that origin so callers do not lose the deadline.
+const decodeFailures = new WeakMap<object, "invalid_utf8" | "timeout">();
+
+export function boundedBodyDecodeFailure(error: unknown): "invalid_utf8" | "timeout" | undefined {
+	return error !== null && typeof error === "object" ? decodeFailures.get(error) : undefined;
+}
+
+function decodeUtf8(chunks: readonly Uint8Array[], fatal: boolean, timedOut = false): string {
 	const decoder = new TextDecoder("utf-8", { fatal });
-	let text = "";
-	for (const chunk of chunks) text += decoder.decode(chunk, { stream: true });
-	// Flush an incomplete trailing UTF-8 sequence deterministically.
-	text += decoder.decode();
-	return text;
+	try {
+		let text = "";
+		for (const chunk of chunks) text += decoder.decode(chunk, { stream: true });
+		// Flush an incomplete trailing UTF-8 sequence deterministically.
+		text += decoder.decode();
+		return text;
+	} catch (error) {
+		if (error !== null && typeof error === "object") {
+			decodeFailures.set(error, timedOut ? "timeout" : "invalid_utf8");
+		}
+		throw error;
+	}
 }
 
 /**
@@ -282,7 +312,7 @@ export async function readBoundedResponseBody(
 					"TimeoutError",
 				);
 				return {
-					text: decodeUtf8([retained.subarray(0, retainedBytes)], options.fatalUtf8 === true),
+					text: decodeUtf8([retained.subarray(0, retainedBytes)], options.fatalUtf8 === true, true),
 					truncated: true,
 					timedOut: true,
 					totalTimedOut: outcome === TOTAL_TIMEOUT,

@@ -80,8 +80,7 @@ visibility = "list"
 
 ## 目前穩定模型涵蓋範圍
 
-原生回退列表包含 `gpt-5.5`、`gpt-5.4`、`gpt-5.4-mini`、
-`gpt-5.3-codex-spark` 以及 GPT-5.6 Sol/Terra/Luna。對於 GPT-5.5/5.4 系列，opencodex 會
+原生回退列表包含 `gpt-5.5` 以及 GPT-5.6 Sol/Terra/Luna。對於 GPT-5.5 系列，opencodex 會
 保留已安裝 Codex 目錄中資訊更完整的即時條目，僅在條目缺失時才合成。內建的上游快照只用於
 GPT-5.6，以便提供每個模型真實的身份和後設資料，而不是套用舊模板近似生成。
 
@@ -196,7 +195,7 @@ model = "anthropic/claude-sonnet-5"
 ocx access test anthropic/claude-sonnet-5 --protocol responses
 ```
 
-**請求抵達代理之後**，兩條路徑都能正確路由，這點有測試覆蓋。尚未確認的是：預備模式生效時，應用程式是否仍會送出已設定的模型。如果用戶端在送出前改寫或拒絕它，代理端的任何設定都改變不了。請把明確選擇當成值得一試的做法，而非已確認的規避方案。
+**請求抵達代理之後**，兩條路徑都能正確路由，這點有測試覆蓋。但預備模式生效時，Codex 桌面應用程式不會送出已設定的模型：它依自己的 `wham/usage` 輪詢（`luna_reserve` 升級提示加上仍被允許的 `gpt-reserve` 附加限額）判定預備狀態，並在請求送出前把模型設定強制改為 `gpt-reserve`，所以 `config.toml` 這條路會在應用程式內被覆寫。在視窗重設之前，請使用 `ocx access test`、經代理的 Claude Code（`ocx claude`）或任何直連 `/v1` 的用戶端。參見[Codex 預備模式下的路由模型](/guides/codex-integration/#routed-models-during-codex-reserve-mode)。
 
 
 如果選擇器仍顯示舊條目，請重新整理目錄並重新開啟目標 Codex 介面：

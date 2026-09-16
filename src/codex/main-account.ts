@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { readCodexTokens } from "./auth-collision";
 import {
@@ -19,6 +19,9 @@ import { resolveCodexHomeDir } from "./home";
 import { assertNotRealCodexHomeUnderTest } from "../lib/test-home-guard";
 import { clearAccountNeedsReauth } from "./account-runtime-state";
 import { advanceCodexCredentialMutationEpoch } from "./credential-mutation-epoch";
+import { withNativeMainExclusiveClaim } from "./native-main-claim";
+import { resolveNativeProfileContext } from "./native-profile-store";
+import { isNativeMainTrafficBlocked } from "./native-profile-startup";
 
 export { MAIN_CODEX_ACCOUNT_ID } from "./account-id";
 
@@ -35,6 +38,16 @@ let beforeMainAuthJsonRenameForTests: (() => void) | null = null;
 type MainAuthJsonCredential = {
   path: string;
   rawSha256: string;
+  /**
+   * Filesystem identity of the file the hash was taken from (#2999).
+   *
+   * A content hash cannot tell "unchanged" from "replaced with a file that happens to
+   * hash the same", and more importantly it is read at a different instant than the
+   * rename. Carrying dev+ino lets the pre-rename guard ask the sharper question: is this
+   * still the same file, not merely one with the same bytes. `null` when the target could
+   * not be stat'ed, which is treated as "cannot prove identity" rather than "matches".
+   */
+  identity: { dev: number; ino: number } | null;
   root: Record<string, unknown>;
   tokens: Record<string, unknown>;
   accessToken?: string;
@@ -45,6 +58,8 @@ type MainAuthJsonCredential = {
 export interface NativeMainRefreshDependencies {
   refreshToken?: (refreshToken: string, options: { signal: AbortSignal }) => Promise<OAuthCredentials>;
   signal?: AbortSignal;
+  /** Metadata-only refresh must not retract a concurrent traffic reauth quarantine. */
+  preserveReauth?: boolean;
 }
 
 export class MainAuthJsonChangedDuringRefreshError extends Error {
@@ -69,6 +84,22 @@ function nonEmptyString(value: unknown): string | undefined {
 
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+/**
+ * Filesystem identity of a path, or null when it cannot be read.
+ *
+ * Null is deliberately NOT "matches anything": a caller that cannot prove identity must
+ * fail closed, because the whole point here is refusing to overwrite a file we can no
+ * longer vouch for.
+ */
+function statIdentity(path: string): { dev: number; ino: number } | null {
+  try {
+    const stat = statSync(path);
+    return { dev: Number(stat.dev), ino: Number(stat.ino) };
+  } catch {
+    return null;
+  }
 }
 
 function readMainAuthJsonCredential(): MainAuthJsonCredential | null {
@@ -96,6 +127,7 @@ function readMainAuthJsonCredential(): MainAuthJsonCredential | null {
     return {
       path,
       rawSha256: sha256(raw),
+      identity: statIdentity(path),
       root,
       tokens,
       ...(accessToken ? { accessToken } : {}),
@@ -129,6 +161,21 @@ function assertMainAuthJsonSnapshotUnchanged(expected: MainAuthJsonCredential): 
   if (!current || current.path !== expected.path || current.rawSha256 !== expected.rawSha256) {
     throw new MainAuthJsonChangedDuringRefreshError();
   }
+  // Identity, not just content (#2999). A writer can land between this check and the
+  // rename, and rename(2) replaces unconditionally - so the narrower the question asked
+  // here, the smaller the window where a Codex login gets silently overwritten. An
+  // unreadable identity on either side fails closed: unprovable is not the same as equal.
+  assertMainAuthJsonIdentityUnchanged(expected);
+}
+
+function assertMainAuthJsonIdentityUnchanged(expected: MainAuthJsonCredential): void {
+  const identity = statIdentity(expected.path);
+  if (!identity
+    || !expected.identity
+    || identity.dev !== expected.identity.dev
+    || identity.ino !== expected.identity.ino) {
+    throw new MainAuthJsonChangedDuringRefreshError();
+  }
 }
 
 function persistRefreshedMainAuthJson(
@@ -158,6 +205,9 @@ function persistRefreshedMainAuthJson(
         beforeMainAuthJsonRenameForTests = null;
         hook?.();
       },
+      // Runs immediately before rename(2), after the test hook has had its chance to
+      // simulate an external writer. Full snapshot check (content AND identity): this is
+      // the last look we get, so it asks everything it can rather than the cheap question.
       validateBeforeRename: () => assertMainAuthJsonSnapshotUnchanged(expected),
     },
   );
@@ -167,6 +217,118 @@ function persistRefreshedMainAuthJson(
 
 export function setMainAuthJsonBeforeRenameHookForTests(hook: (() => void) | null): void {
   beforeMainAuthJsonRenameForTests = hook;
+}
+
+/** Complete token set a native device reauth commits into the main slot (#3898). */
+export interface NativeMainReauthTokens {
+  accessToken: string;
+  refreshToken: string;
+  idToken: string;
+  chatgptAccountId: string;
+}
+
+export class NativeMainReauthUnavailableError extends Error {
+  constructor(message = "Native main credential cannot be reauthenticated in this state") {
+    super(message);
+    this.name = "NativeMainReauthUnavailableError";
+  }
+}
+
+export class NativeMainReauthIdentityMismatchError extends Error {
+  constructor() {
+    super("Device login completed for a different ChatGPT account than the native main identity");
+    this.name = "NativeMainReauthIdentityMismatchError";
+  }
+}
+
+/**
+ * The reauth twin of persistRefreshedMainAuthJson (#3898). That function
+ * spreads expected.tokens and never writes id_token, which would keep the
+ * OLD identity token beside the new grant; this sibling sets all four
+ * credential fields together and overwrites any prior id_token. Everything
+ * else — allowed root metadata, the pre-rename snapshot guards, the
+ * mutation epoch — follows the refresh path exactly.
+ */
+function persistNativeMainReauthTokens(
+  expected: MainAuthJsonCredential,
+  tokens: NativeMainReauthTokens,
+): void {
+  assertNotRealCodexHomeUnderTest(resolveCodexHomeDir());
+  const nextTokens = {
+    ...expected.tokens,
+    access_token: tokens.accessToken,
+    refresh_token: tokens.refreshToken,
+    id_token: tokens.idToken,
+    account_id: tokens.chatgptAccountId,
+  };
+  atomicWriteFile(
+    expected.path,
+    JSON.stringify({ ...expected.root, tokens: nextTokens }, null, 2) + "\n",
+    undefined,
+    {
+      beforeRename: () => {
+        assertMainAuthJsonSnapshotUnchanged(expected);
+        const hook = beforeMainAuthJsonRenameForTests;
+        beforeMainAuthJsonRenameForTests = null;
+        hook?.();
+      },
+      validateBeforeRename: () => assertMainAuthJsonSnapshotUnchanged(expected),
+    },
+  );
+  advanceCodexCredentialMutationEpoch();
+}
+
+/**
+ * Prepare a same-identity reauth of the native __main__ slot (#3898).
+ *
+ * The existing credential snapshot is captured NOW and held only inside the
+ * closure — callers (the device-reauth service) never see the expected
+ * account id, so a flow cannot be steered toward a different identity. No
+ * claim is held while the human completes the device page. The returned
+ * commit, called once the device grant exists:
+ *
+ *  1. requires the SAME chatgpt account identity as the snapshot;
+ *  2. acquires the owner-independent exclusive claim (native-main-claim) —
+ *     deliberately NOT assertNativeMainOwner, which a headless hub cannot
+ *     satisfy;
+ *  3. re-verifies the snapshot (path + hash + dev/ino) inside the claim;
+ *  4. writes access/refresh/id token + account_id atomically and clears the
+ *     main account's reauth quarantine for the new credential generation.
+ */
+export function beginNativeMainReauth(): {
+  commit: (tokens: NativeMainReauthTokens) => Promise<{ chatgptAccountId: string }>;
+} {
+  const expected = readMainAuthJsonCredential();
+  if (!expected || !expected.chatgptAccountId) {
+    throw new NativeMainReauthUnavailableError(
+      "No native main credential exists to reauthenticate; enrollment is the native profile workflow",
+    );
+  }
+  return {
+    async commit(tokens: NativeMainReauthTokens): Promise<{ chatgptAccountId: string }> {
+      if (!tokens.accessToken || !tokens.refreshToken || !tokens.idToken) {
+        throw new NativeMainReauthUnavailableError("Device grant did not produce a complete token set");
+      }
+      if (tokens.chatgptAccountId !== expected.chatgptAccountId) {
+        throw new NativeMainReauthIdentityMismatchError();
+      }
+      return withNativeMainExclusiveClaim(resolveNativeProfileContext(), async () => {
+        // Recovery/admission recheck (080): a recovery-blocked or not-ready
+        // home fails native_main_unavailable rather than rewriting auth.json
+        // underneath the gate. The claim waits bounded like the refresh path
+        // (30s) so a busy claim is not an instant refusal.
+        if (isNativeMainTrafficBlocked()) {
+          throw new NativeMainReauthUnavailableError(
+            "Native main traffic is blocked by startup or recovery state",
+          );
+        }
+        assertMainAuthJsonSnapshotUnchanged(expected);
+        persistNativeMainReauthTokens(expected, tokens);
+        clearAccountNeedsReauth(MAIN_CODEX_ACCOUNT_ID);
+        return { chatgptAccountId: tokens.chatgptAccountId };
+      }, { waitMs: 30_000 });
+    },
+  };
 }
 
 async function resolveMainAccountToken(
@@ -187,41 +349,66 @@ async function resolveMainAccountToken(
       : null;
   }
 
+  const refreshTimeout = AbortSignal.timeout(30_000);
   const signal = dependencies.signal
-    ? AbortSignal.any([dependencies.signal, AbortSignal.timeout(30_000)])
-    : AbortSignal.timeout(30_000);
+    ? AbortSignal.any([dependencies.signal, refreshTimeout])
+    : refreshTimeout;
   const lockKey = refreshGrantFingerprintForToken(initial.refreshToken);
-  return withCodexRefreshFileLock(lockKey, signal, async () => {
-    const locked = readMainAuthJsonCredential();
-    if (!locked) throw new MainAuthJsonChangedDuringRefreshError();
-    if (!locked.refreshToken
-      || refreshGrantFingerprintForToken(locked.refreshToken) !== lockKey) {
-      if (locked.accessToken !== rejectedAccessToken
-        && mainAccessTokenFresh(locked.accessToken, Date.now(), 0)) {
-        return { accessToken: locked.accessToken!, chatgptAccountId: locked.chatgptAccountId };
-      }
-      throw new MainAuthJsonChangedDuringRefreshError();
+  // Two locks, because they guard two different things that live in two different
+  // homes. `withCodexRefreshFileLock` is keyed on the grant fingerprint and lives
+  // under OPENCODEX_HOME; it serializes refreshes of the SAME grant within one
+  // install. The file being rewritten is `auth.json` under CODEX_HOME, which every
+  // OpenCodex install on the machine shares no matter what its own home is -- so two
+  // proxies with distinct OPENCODEX_HOMEs took two unrelated fingerprint locks and
+  // refreshed the one credential concurrently (#2999).
+  //
+  // The outer claim is the CODEX_HOME coordination the other native-main paths
+  // already use (`.opencodex-native-main.claim.sqlite`), so this needs no new
+  // primitive and no FFI. Order is claim (machine-wide) then fingerprint lock
+  // (per-grant), never the reverse: two processes holding different fingerprint
+  // locks and then reaching for the same claim would deadlock.
+  try {
+    return await withNativeMainExclusiveClaim(
+      resolveNativeProfileContext(),
+      () => withCodexRefreshFileLock(lockKey, signal, async () => {
+        const locked = readMainAuthJsonCredential();
+        if (!locked) throw new MainAuthJsonChangedDuringRefreshError();
+        if (!locked.refreshToken
+          || refreshGrantFingerprintForToken(locked.refreshToken) !== lockKey) {
+          if (locked.accessToken !== rejectedAccessToken
+            && mainAccessTokenFresh(locked.accessToken, Date.now(), 0)) {
+            return { accessToken: locked.accessToken!, chatgptAccountId: locked.chatgptAccountId };
+          }
+          throw new MainAuthJsonChangedDuringRefreshError();
+        }
+        if (locked.accessToken !== rejectedAccessToken
+          && mainAccessTokenFresh(locked.accessToken, Date.now(), MAIN_TOKEN_REFRESH_SKEW_MS)) {
+          return { accessToken: locked.accessToken!, chatgptAccountId: locked.chatgptAccountId };
+        }
+        const refresh = dependencies.refreshToken
+          ?? ((refreshToken: string, options: { signal: AbortSignal }) => refreshChatGPTToken(refreshToken, options));
+        let refreshed: OAuthCredentials;
+        try {
+          refreshed = await refresh(locked.refreshToken, { signal });
+        } catch (cause) {
+          const message = cause instanceof Error ? cause.message.toLowerCase() : "";
+          const reason = /invalid_grant|invalidated|revoked|expired/.test(message)
+            ? "reauth" as const
+            : "transient" as const;
+          throw new MainAccountTokenRefreshError(reason, { cause });
+        }
+        const result = persistRefreshedMainAuthJson(locked, refreshed);
+        if (dependencies.preserveReauth !== true) clearAccountNeedsReauth(MAIN_CODEX_ACCOUNT_ID);
+        return result;
+      }),
+      { waitMs: 30_000, signal },
+    );
+  } catch (cause) {
+    if (refreshTimeout.aborted && !dependencies.signal?.aborted) {
+      throw new MainAccountTokenRefreshError("transient", { cause });
     }
-    if (locked.accessToken !== rejectedAccessToken
-      && mainAccessTokenFresh(locked.accessToken, Date.now(), MAIN_TOKEN_REFRESH_SKEW_MS)) {
-      return { accessToken: locked.accessToken!, chatgptAccountId: locked.chatgptAccountId };
-    }
-    const refresh = dependencies.refreshToken
-      ?? ((refreshToken: string, options: { signal: AbortSignal }) => refreshChatGPTToken(refreshToken, options));
-    let refreshed: OAuthCredentials;
-    try {
-      refreshed = await refresh(locked.refreshToken, { signal });
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message.toLowerCase() : "";
-      const reason = /invalid_grant|invalidated|revoked|expired/.test(message)
-        ? "reauth" as const
-        : "transient" as const;
-      throw new MainAccountTokenRefreshError(reason, { cause });
-    }
-    const result = persistRefreshedMainAuthJson(locked, refreshed);
-    clearAccountNeedsReauth(MAIN_CODEX_ACCOUNT_ID);
-    return result;
-  });
+    throw cause;
+  }
 }
 
 /** Refresh the CLI-owned native credential before upstream I/O and publish it atomically. */

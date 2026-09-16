@@ -371,23 +371,18 @@ export function rewriteRoutedNamespaceToolsForUpstream(
   const toolChoice = rewriteToolChoice(body.tool_choice, plan);
   const aliases = authorizedAliases(plan.aliases, toolChoice);
   const ambiguousDotted = collectAmbiguousDottedAliases(groups);
-  // Register canonical identities first, then only dotted aliases that cannot collide with a
-  // caller-controlled canonical/bare spelling elsewhere in the declaration set.
+  // Authorize canonical identities first, then add only unambiguous spellings.
+  // Selection cannot hide a collision elsewhere in the original declaration set.
   for (const identity of [...aliases.values()]) {
     const dotted = dottedToolName(identity.namespace, identity.name);
     if (dottedAliasIsUnambiguous(identity.namespace, identity.name)
-      && !ambiguousDotted.has(dotted)
-      && !plan.bareWireNames.has(dotted)
-      && !aliases.has(dotted)) {
-      aliases.set(dotted, identity);
-    }
+      && !ambiguousDotted.has(dotted) && !plan.bareWireNames.has(dotted)
+      && !aliases.has(dotted)) aliases.set(dotted, identity);
   }
-  // Custom tools are lowered before namespaces. Preserve their original kind in the authorized
-  // alias map so an upstream custom_tool_call can never be accepted for a function declaration.
+  // The adapter lowers custom tools before namespaces. Preserve their declared
+  // kind only in already-authorized response aliases; wire selectors remain lowered.
   for (const identity of aliases.values()) {
-    if (convertedCustomToolNames?.has(namespacedToolName(identity.namespace, identity.name))) {
-      identity.kind = "custom";
-    }
+    if (convertedCustomToolNames?.has(namespacedToolName(identity.namespace, identity.name))) identity.kind = "custom";
   }
   return {
     body: {
@@ -429,6 +424,8 @@ export function restoreRoutedNamespaceCalls(
   ) {
     const identity = aliases.get(value.name);
     if (identity
+      // Custom declarations may be lowered to function calls upstream, but an
+      // ordinary function declaration never authorizes a custom call payload.
       && (value.type !== "custom_tool_call" || identity.kind === "custom")
       && (!Object.hasOwn(value, "namespace") || value.namespace === identity.namespace)) {
       restored.name = identity.name;

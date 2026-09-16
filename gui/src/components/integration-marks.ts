@@ -30,6 +30,8 @@ const NATIVE_MARKS: Record<Exclude<OverviewClientId, ExportClientId>, string> = 
   claude: "/provider-icons/claude-color.svg",
   claudeDesktop: "/provider-icons/claude-color.svg",
   grok: "/provider-icons/grok.svg",
+  // Two-ink brand artwork, drawn as an image (never masked).
+  cursor: "/provider-icons/cursor-color.svg",
 };
 
 /**
@@ -55,6 +57,9 @@ export const INTEGRATION_MARKS: Record<OverviewClientId, string | null> = {
   zcode: CLIENT_MARKS.zcode ?? null,
   prime: CLIENT_MARKS.prime ?? null,
   aside: CLIENT_MARKS.aside ?? null,
+  raycast: CLIENT_MARKS.raycast ?? null,
+  omo: CLIENT_MARKS.omo ?? null,
+  cline: CLIENT_MARKS.cline ?? null,
 };
 
 /**

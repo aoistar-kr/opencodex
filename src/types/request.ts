@@ -56,6 +56,8 @@ export interface OcxParsedRequest {
    * CLIENT already carried that history verbatim and the proxy skipped the prepend.
    */
   _replayPrefixLen?: number;
+  /** Request-scoped proof that Codex standalone `web.run` is authorized for this routed turn. */
+  _standaloneWebRunAuthorized?: boolean;
   /** Parsed-message index before the first conversational item in a continuation's current delta. */
   _continuationConversationMessageIndex?: number;
   /**
@@ -68,6 +70,8 @@ export interface OcxParsedRequest {
   _cursorConversationId?: string;
   /** Stable upstream client thread identity, used only to derive provider-scoped continuation ids. */
   _clientThreadId?: string;
+  /** True when promptCacheKey identifies a shared cache cohort rather than one conversation. */
+  _promptCacheKeyIsSharedCohort?: boolean;
   /** Cursor-only thread owner; may be an opaque process-local Desktop session/thread identity. */
   _cursorClientThreadId?: string;
   /** Conversation/provider/account/model-bound namespace for reasoning replay state. */
@@ -77,6 +81,8 @@ export interface OcxParsedRequest {
    * prepareOpaqueBlobRecovery after an authoritative rejection; consumers strip replayed blobs.
    */
   _stripReasoningEncryptedContent?: boolean;
+  /** Final-route opt-in: emit v2 collaboration message arguments as plaintext on ChatGPT. */
+  _plaintextV2AgentMessages?: boolean;
   /**
    * Optional authenticated tenant/operator namespace for Cursor thread→conversation derivation.
    * When absent (single-operator local proxy), derivation stays local-scoped.
@@ -98,7 +104,7 @@ export interface OcxParsedRequest {
   /**
    * The hosted `{type:"web_search", ...}` tool config, stashed when Codex enables web search. Routed
    * (non-OpenAI) providers can't run it server-side, so the proxy re-exposes it as a function tool and
-   * executes searches via the gpt-5.4-mini sidecar (see src/web-search). Absent when not requested.
+   * executes searches via the gpt-5.6-luna sidecar (see src/web-search). Absent when not requested.
    */
   _webSearch?: Record<string, unknown>;
   /** Hosted image_generation tool config stashed for the image bridge sidecar (see src/images). */
@@ -333,6 +339,8 @@ export type AdapterEvent =
   | {
       type: "done";
       usage?: OcxUsage;
+      /** Native opaque compaction ciphertext returned by a Responses backend. */
+      compactionEncryptedContent?: string;
       stopReason?: string;
       endTurn?: boolean;
       providerState?: OcxProviderContinuationState;
@@ -394,4 +402,12 @@ export interface OcxUsage {
   cacheCreationInputTokens?: number;
   reasoningOutputTokens?: number;
   estimated?: boolean;
+  /**
+   * The raw upstream usage object for Responses-shaped upstreams (openai/codex#41980 parity):
+   * codex-rs preserves the complete `response.usage` object through its own pipeline, so fields
+   * the proxy does not model (subscription metadata, future counters) must survive the bridged /
+   * rebuilt `response.completed` too. Accounting paths read only the canonical fields above; the
+   * wire rebuild merges this object's unknown keys back under the normalized values.
+   */
+  rawUsage?: Record<string, unknown>;
 }

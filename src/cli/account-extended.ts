@@ -1,4 +1,5 @@
 import { loadConfig } from "../config";
+import { hasPassiveAccountQuota } from "../providers/quota";
 import { closeSync, openSync, readSync } from "node:fs";
 import {
   MAX_ACCOUNT_PRIORITY,
@@ -43,7 +44,7 @@ const EXTENDED_USAGE = `Usage:
   ocx account pause <provider> <id|main> [--json]
   ocx account resume <provider> <id|main> [--json]
   ocx account pause-exhausted <provider> [--json]
-  ocx account strategy <provider> [<quota|round-robin|fill-first>] [--json]
+  ocx account strategy <provider> [<quota|round-robin|fill-first|reset-first>] [--json]
   ocx account sticky <provider> [<1-100>] [--json]
   ocx account remove <provider> <id|main> --yes [--json]
   ocx account clear-cooldown <provider> <id|main> [--json]
@@ -263,6 +264,7 @@ function refreshLine(row: FamilyRows["rows"][number]): string {
   const quotaText = row.quota ? quotaParts(row.quota).join(" ") : "";
   parts.push(quotaText.length > 0 ? quotaText : "quota: unknown");
   if (row.needsReauth) parts.push("needs-reauth");
+  if (row.validationPending) parts.push("validation-pending (routing disabled; open 'ocx gui' and click Refresh quotas after recovery)");
   return parts.filter(Boolean).join(" ");
 }
 
@@ -330,10 +332,15 @@ export async function cmdRefresh(args: string[], deps: AccountDeps): Promise<num
     if (result.status === 0) return proxyUnreachable(result.transportError);
     if (result.status !== 200) return apiError(result.errorJson ?? {}, `failed to refresh ${name}`, result.status);
     if (wantsJson) console.log(JSON.stringify({ provider: name, report: result.report }, null, 2));
-    else console.log(result.report ? providerQuotaLine(name, result.report) : `no quota report available for ${name}`);
+    else if (result.report) console.log(providerQuotaLine(name, result.report));
+    // A passive provider has no probe to run, so "no report available" reads as a
+    // failure of something that was never attempted. Say what is actually true.
+    else if (hasPassiveAccountQuota(name)) {
+      console.log(`${name} reports usage only during a streaming response; there is nothing to refresh. Run a request through this provider to update it, then see \`ocx account list ${name}\`.`);
+    } else console.log(`no quota report available for ${name}`);
     return 0;
   }
-  const result = await fetchCodexRows(deps, baseUrl, true);
+  const result = await fetchCodexRows(deps, baseUrl, true, true, { refreshAction: true });
   const failed = familyFailure(result, `failed to refresh ${name}`);
   if (failed !== null) return failed;
   if (wantsJson) console.log(JSON.stringify({ accounts: result.rows }, null, 2));
@@ -347,9 +354,12 @@ export async function cmdAutoSwitch(args: string[], deps: AccountDeps): Promise<
   const action = args.shift();
   if (!name || !action) return usage();
   const classified = configAndType(deps, name);
-  if ("error" in classified || classified.type !== "codex") {
-    return usage("Error: auto-switch only applies to the openai Codex account pool");
+  // Anthropic keeps its threshold on its own pool contract; generic OAuth providers (#695)
+  // and the Codex pool are accepted here.
+  if ("error" in classified || classified.type === "api-key" || name === "anthropic") {
+    return usage("Error: auto-switch only applies to the openai Codex account pool or a generic OAuth provider pool");
   }
+  const genericPool = classified.type === "oauth";
   let threshold: number | undefined;
   if (action === "on" && args.length === 0) threshold = 80;
   else if (action === "off" && args.length === 0) threshold = 0;
@@ -358,19 +368,55 @@ export async function cmdAutoSwitch(args: string[], deps: AccountDeps): Promise<
   if (threshold !== undefined && (!Number.isInteger(threshold) || threshold < 0 || threshold > 100)) {
     return usage("Error: threshold must be an integer 0-100");
   }
+  let settings: Record<string, unknown> = {};
   const baseUrl = await resolveBaseUrl(deps);
   if (!baseUrl) return proxyUnreachable();
   if (action === "status") {
-    const response = await apiJson(deps, baseUrl, "GET", "/api/codex-auth/active");
+    const response = await apiJson(
+      deps, baseUrl, "GET",
+      genericPool ? `/api/oauth/accounts/pool?provider=${encodeURIComponent(name)}` : "/api/codex-auth/active",
+    );
     if (response.status === 0) return proxyUnreachable(response.transportError);
-    if (response.status !== 200 || typeof response.json.autoSwitchThreshold !== "number") {
+    if (response.status !== 200 || (!genericPool && typeof response.json.autoSwitchThreshold !== "number")) {
       return apiError(response.json, "failed to read auto-switch status", response.status);
     }
-    threshold = response.json.autoSwitchThreshold;
+    settings = genericPool && (!response.json || typeof response.json !== "object" || Array.isArray(response.json))
+      ? {} : response.json;
+    threshold = typeof settings.autoSwitchThreshold === "number" ? settings.autoSwitchThreshold : 0;
   } else {
-    const response = await apiJson(deps, baseUrl, "PUT", "/api/codex-auth/auto-switch", { threshold });
+    const response = genericPool
+      ? await apiJson(deps, baseUrl, "PUT", "/api/oauth/accounts/pool", { provider: name, autoSwitchThreshold: threshold })
+      : await apiJson(deps, baseUrl, "PUT", "/api/codex-auth/auto-switch", { threshold });
     if (response.status === 0) return proxyUnreachable(response.transportError);
     if (response.status !== 200) return apiError(response.json, "failed to update auto-switch", response.status);
+    settings = genericPool && (!response.json || typeof response.json !== "object" || Array.isArray(response.json))
+      ? {} : response.json;
+  }
+  if (genericPool) {
+    // Generic thresholds are stored independently of the enabled override. The
+    // latter may inherit global preference and never disables reactive rotation.
+    const stored = settings.autoSwitchThreshold;
+    const storedThreshold = typeof stored === "number" && Number.isInteger(stored) && stored >= 0 && stored <= 100
+      ? stored : null;
+    const poolEnabled = typeof settings.enabled === "boolean" ? settings.enabled : null;
+    // Three states, not two. `true` is stored-but-not-applied, `false` is applied by the
+    // shared kernel, and absent is a server that does not speak this field at all. Collapsing
+    // false into absent would render the live feature as an unknown capability.
+    const inert = typeof settings.inert === "boolean" ? settings.inert : null;
+    // A stored threshold only steers selection once the pool consumes it, which is exactly
+    // what `inert: false` reports.
+    const enabled = inert === false && storedThreshold !== null;
+    if (wantsJson) {
+      console.log(JSON.stringify({ provider: name, autoSwitchThreshold: storedThreshold, enabled, poolEnabled, inert }, null, 2));
+    } else {
+      const value = storedThreshold === null ? "unset" : `${storedThreshold}%`;
+      const state = inert === false ? (enabled ? "on" : "off") : inert === true ? "inactive" : "unavailable";
+      const why = inert === false
+        ? (enabled ? "applied by this pool" : "no threshold stored")
+        : inert === true ? "not applied by this pool" : "threshold support is unknown";
+      console.log(`auto-switch: ${state} (stored threshold ${value}; ${why})`);
+    }
+    return 0;
   }
   const enabled = threshold! > 0;
   if (wantsJson) console.log(JSON.stringify({ provider: name, autoSwitchThreshold: threshold, enabled }, null, 2));
@@ -801,21 +847,15 @@ export async function cmdPauseExhausted(args: string[], deps: AccountDeps): Prom
 }
 
 /**
- * Two pools expose strategy and sticky, and they are NOT reached the same way:
+ * One transport, because there is now one contract.
  *
- * |  | Codex pool | Anthropic pool |
- * |---|---|---|
- * | read | `GET /api/codex-auth/active` | `GET /api/oauth/accounts/pool?provider=` |
- * | write | `PUT /api/codex-auth/pool-strategy` | `PUT /api/oauth/accounts/pool` |
- * | keys | `accountPoolStrategy`/`accountPoolStickyLimit` | `strategy`/`stickyLimit` |
- * | body | bare field | field **plus** a mandatory `provider` |
+ * This used to be a table of the differences between the Codex and Anthropic pools -- different
+ * read path, different write path, different response keys, and a `provider` field mandatory on
+ * one body and forbidden on the other. That table existed only because the two contracts
+ * disagreed; `/api/pool/settings` answers with the same keys for every kind, so the table
+ * collapses to a single shape and the asymmetry it encoded is gone rather than relocated.
  *
- * Omitting `provider` from the Anthropic write body earns a 400
- * (`oauth-account-routes.ts:344`), so the asymmetry has to be encoded somewhere. Encoding it
- * here keeps ONE verb pair working on both pools. The alternative the plan left open -- a second
- * `provider-strategy`/`provider-sticky` pair -- would double the surface an operator must learn
- * to express one idea, and a CLI that can steer one pool and not the other is exactly the trap
- * this unit exists to remove.
+ * The legacy paths still work and still have their own goldens. Nothing here reads them.
  */
 interface PoolTransport {
   readPath: string;
@@ -827,18 +867,10 @@ interface PoolTransport {
   writeBody: (field: "strategy" | "stickyLimit", value: unknown) => Record<string, unknown>;
 }
 
-const CODEX_POOL_TRANSPORT: PoolTransport = {
-  readPath: "/api/codex-auth/active",
-  writePath: "/api/codex-auth/pool-strategy",
-  strategyKey: "accountPoolStrategy",
-  stickyKey: "accountPoolStickyLimit",
-  writeBody: (field, value) => ({ [field]: value }),
-};
-
-function anthropicPoolTransport(provider: string): PoolTransport {
+function unifiedPoolTransport(provider: string): PoolTransport {
   return {
-    readPath: `/api/oauth/accounts/pool?provider=${encodeURIComponent(provider)}`,
-    writePath: "/api/oauth/accounts/pool",
+    readPath: `/api/pool/settings?provider=${encodeURIComponent(provider)}`,
+    writePath: "/api/pool/settings",
     strategyKey: "strategy",
     stickyKey: "stickyLimit",
     writeBody: (field, value) => ({ provider, [field]: value }),
@@ -846,16 +878,16 @@ function anthropicPoolTransport(provider: string): PoolTransport {
 }
 
 /**
- * The pool-config route supports `anthropic` only and says so with a 400. Any other OAuth
- * provider is refused here with the same wording rather than spending a round-trip to learn it.
+ * Codex and Anthropic keep their own pool transports; every other OAuth provider speaks the
+ * generic pool-settings contract on the same `/api/oauth/accounts/pool` route (#695).
+ * API-key providers have no pool and are refused here without a round-trip.
  */
 function poolTransportFor(
   classified: { type: "codex" | "oauth" | "api-key" },
   name: string,
 ): PoolTransport | string {
-  if (classified.type === "codex") return CODEX_POOL_TRANSPORT;
-  if (classified.type === "oauth" && name === "anthropic") return anthropicPoolTransport(name);
-  return `pool settings apply to the openai Codex pool and the anthropic pool, not "${name}"`;
+  if (classified.type === "codex" || classified.type === "oauth") return unifiedPoolTransport(name);
+  return `pool settings apply to OAuth account pools, not the API-key provider "${name}"`;
 }
 
 /**

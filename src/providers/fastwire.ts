@@ -14,6 +14,9 @@ const FAST_WIRE_ADAPTERS: Readonly<Record<FastWire["kind"], ReadonlySet<string>>
   "service-tier": SERVICE_TIER_ADAPTERS,
   // A1 deliberately has no adapter implementation for Anthropic speed.
   "anthropic-speed": new Set(),
+  // Cursor expresses Fast as a variant dimension of the picked model, resolved in the
+  // request builder, so the adapter set is exactly the cursor adapter.
+  "cursor-variant": new Set(["cursor"]),
 };
 
 const DEFAULT_SERVICE_TIER_FAST_WIRE: FastWire = Object.freeze({
@@ -209,8 +212,13 @@ export function resolveFastPolicy(
   // On classified routes this permission applies only to a caller's foreign tier: proxy-owned
   // canonical Fast has already passed capability validation. On unclassified routes every caller
   // tier still needs the final wire's forwarding permission.
+  // A wire that declares `foreignCallerTiers: "drop"` cannot carry an arbitrary tier string at
+  // all — cursor-variant resolves a MODEL VARIANT, so there is nothing to forward a foreign
+  // value into. Without this, an unclassified route on such a wire projects "unknown" support
+  // and Codex would show a Fast toggle on a base that has no fast variant.
   const forwardCallerTier = capability !== false
     && callerWireAvailable
+    && fastWire?.foreignCallerTiers !== "drop"
     && forwardCallerServiceTier !== false
     && (adapter !== "openai-chat" || authority.capability.chatServiceTier === true);
 
@@ -236,9 +244,22 @@ export function resolveFastPolicy(
   };
 }
 
-export function canonicalFastTierMarker(callerTier: string | undefined): "priority" | undefined {
+/**
+ * Fold a caller's service tier onto a canonical fast marker.
+ *
+ * `ultrafast` is recognised as INTENT even though no shipped catalog advertises it and
+ * `DEFAULT_SERVICE_TIER_FAST_WIRE` has no wire mapping for it. That asymmetry is
+ * deliberate: a caller who sends `ultrafast` (which #3429's reporter did, via their own
+ * catalog edit) was previously folded to `undefined`, which made `fastIntent` false and
+ * recorded `fastOutcome: "not-requested"` — the log asserting the user asked for nothing.
+ * Recognising the intent without a wire mapping lands the attempt on `unknown` instead,
+ * which is the truth: the tier was requested, and we cannot confirm it was honored.
+ */
+export function canonicalFastTierMarker(callerTier: string | undefined): "priority" | "ultrafast" | undefined {
   const folded = callerTier?.trim().toLowerCase();
-  return folded === "priority" || folded === "fast" ? "priority" : undefined;
+  if (folded === "priority" || folded === "fast") return "priority";
+  if (folded === "ultrafast") return "ultrafast";
+  return undefined;
 }
 
 /** Capture Fast demand before the final A1 serialization action rewrites the parsed tier view. */
@@ -290,7 +311,18 @@ export function createAdapterTierMetadata(
 ): AdapterTierMetadata | undefined {
   if (!context || !decision) return undefined;
 
-  const callerCanonicalFast = canonicalFastTierMarker(context.callerTier) === "priority";
+  const callerMarker = canonicalFastTierMarker(context.callerTier);
+  // Two different questions, and conflating them mislabels the record.
+  //
+  // "Did the caller ask for FAST?" governs the drop and suppression facts: the Fast
+  // toggle suppressing a request is only true of the 1.5x Fast tier, so an `ultrafast`
+  // caller turned away by `fastMode: false` was NOT a suppressed Fast request and must
+  // still read as `callerTierDropped`.
+  //
+  // "Did the caller ask for SOME fast-family tier?" is the wider question, and only
+  // `fastIntent` below is entitled to it.
+  const callerCanonicalFast = callerMarker === "priority";
+  const callerFastFamilyIntent = callerMarker !== undefined;
   const callerTierDropped = context.callerTier !== undefined
     && !callerCanonicalFast
     && wireValue === null;
@@ -330,7 +362,7 @@ export function createAdapterTierMetadata(
   // Known-unsupported routes still need a downgrade when the caller/config expressed Fast intent,
   // but they are deliberately outside the effective-demand calculation above.
   const fastIntent = context.demandDecision === "force-fast"
-    || (context.demandDecision === "inherit" && callerCanonicalFast);
+    || (context.demandDecision === "inherit" && callerFastFamilyIntent);
 
   if (!fastIntent) {
     outcome.fastOutcome = "not-requested";
@@ -413,9 +445,14 @@ export function decideTier(
   const callerCanonicalFast = canonicalFastTierMarker(callerTier);
   if (callerCanonicalFast !== undefined) {
     const value = policy.fastWire.canonicalToWire[callerCanonicalFast];
-    return typeof value === "string" && value.length > 0
-      ? { kind: "set", value }
-      : { kind: "drop" };
+    if (typeof value === "string" && value.length > 0) return { kind: "set", value };
+    // A canonical marker with NO wire mapping is not a reason to drop the tier.
+    //
+    // `ultrafast` is recognised as intent but deliberately unmapped, because no wire
+    // advertises it. Dropping here would have made recognition strictly worse than not
+    // recognising it at all: before, `ultrafast` was a foreign tier and
+    // `foreignCallerTiers: "verbatim"` forwarded it untouched. Falling through keeps that
+    // behavior, so an operator-supplied tier still reaches the provider.
   }
   if (callerTier !== undefined && !policy.forwardCallerTier) return { kind: "drop" };
   if (
@@ -467,8 +504,8 @@ export function fastWireDeclarationError(source: {
   }
   if (value === null) return null;
   if (!isPlainRecord(value)) return "fastWire must be an object, null, or absent";
-  if (value.kind !== "service-tier" && value.kind !== "anthropic-speed") {
-    return "fastWire.kind must be service-tier or anthropic-speed";
+  if (value.kind !== "service-tier" && value.kind !== "anthropic-speed" && value.kind !== "cursor-variant") {
+    return "fastWire.kind must be service-tier, anthropic-speed, or cursor-variant";
   }
   if (value.foreignCallerTiers !== "verbatim" && value.foreignCallerTiers !== "drop") {
     return "fastWire.foreignCallerTiers must be verbatim or drop";

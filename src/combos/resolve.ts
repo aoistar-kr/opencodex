@@ -1,6 +1,13 @@
 import type { OcxComboTarget, OcxConfig } from "../types";
-import { getCachedProviderQuota } from "../providers/quota-routing-cache";
-import { coolComboTarget, isComboTargetInCooldown } from "./failover";
+import { getCachedProviderRoutingQuota } from "../providers/quota-routing-cache";
+import type { ProviderQuota } from "../providers/quota-types";
+import { sleepWithAbort } from "../lib/upstream-retry";
+import {
+  coolComboTarget,
+  earliestComboCooldown,
+  isComboTargetInCooldown,
+  type ComboFailureCooldownScope,
+} from "./failover";
 import { quotaResetRemainingMs } from "./reset-window";
 import { getCombo, resolveComboId, targetKey } from "./types";
 import type { NormalizedComboConfig } from "./types";
@@ -53,9 +60,81 @@ export class NoAvailableComboTargetsError extends Error {
   }
 }
 
-function targetProviderIsUsable(config: OcxConfig, target: OcxComboTarget): boolean {
-  return Object.hasOwn(config.providers, target.provider)
-    && config.providers[target.provider]?.disabled !== true;
+function targetProviderIsUsable(config: OcxConfig, target: OcxComboTarget, now: number): boolean {
+  if (!Object.hasOwn(config.providers, target.provider)) return false;
+  const provider = config.providers[target.provider];
+  if (!provider || provider.disabled === true) return false;
+  return !cachedProviderQuotaIsExhausted(getCachedProviderRoutingQuota(target.provider, provider, now), now);
+}
+
+function quotaWindowExhausted(percent: number | undefined, resetAt: number | undefined, now: number): boolean {
+  if (typeof percent !== "number" || !Number.isFinite(percent) || percent < 100) return false;
+  return typeof resetAt !== "number" || !Number.isFinite(resetAt) || resetAt > now;
+}
+
+export function cachedProviderQuotaIsExhausted(
+  quota: ProviderQuota | null,
+  now = Date.now(),
+): boolean {
+  if (!quota) return false;
+  if (quotaWindowExhausted(quota.fiveHourPercent, quota.fiveHourResetAt, now)) return true;
+  if (quotaWindowExhausted(quota.weeklyPercent, quota.weeklyResetAt, now)) return true;
+  if (quotaWindowExhausted(quota.monthlyPercent, quota.monthlyResetAt, now)) return true;
+  if (quota.customWindows?.some(window => quotaWindowExhausted(window.percent, window.resetAt, now))) return true;
+  if (quota.creditsUsd?.unlimited !== true
+      && typeof quota.creditsUsd?.percent === "number"
+      && Number.isFinite(quota.creditsUsd.percent)
+      && quota.creditsUsd.percent >= 100
+      && quota.creditsUsd.remaining <= 0) return true;
+  return false;
+}
+
+/**
+ * Why a catalog row is offered but cannot currently serve a request (#1711).
+ *
+ * Only one reason exists today. It is a string rather than a boolean so a later cause — a
+ * cooldown, a revoked key — can be told apart by a consumer that already reads the field.
+ */
+export type QuotaInactiveReason = "no_credit";
+
+/**
+ * `"no_credit"` when every USABLE target of a catalog row has positive exhaustion evidence
+ * (#1711), otherwise undefined.
+ *
+ * This reuses the credential-scoped evidence and exhaustion rules used by runtime selection.
+ * Display-only account, model-group and service windows cannot mark a whole provider inactive.
+ *
+ * Three rules carry the correctness, all inherited rather than restated:
+ *
+ * - A target the operator has removed or disabled is not usable and is not evidence either way;
+ *   it drops out before the vote. If nothing is left, the row is unavailable for an operator
+ *   reason rather than a quota one, so this returns undefined.
+ * - The canonical ChatGPT forward provider is exempt. Native account selection owns model-scoped
+ *   quota, and a provider-level summary cannot veto it.
+ * - A stale cache is NOT exhaustion. `getCachedProviderRoutingQuota` returns null past its 30-minute
+ *   window, and a null reading ends the vote rather than counting as evidence, so an unprobed
+ *   provider is never marked inactive.
+ *
+ * "Every" is the bar on purpose: one target that can still serve makes the row serviceable, which
+ * is exactly what the combo loop concludes at request time.
+ */
+export function quotaInactiveReason(
+  config: OcxConfig,
+  targets: readonly { provider: string }[],
+  now = Date.now(),
+): QuotaInactiveReason | undefined {
+  const usable = targets.filter(target => {
+    if (!Object.hasOwn(config.providers, target.provider)) return false;
+    const provider = config.providers[target.provider];
+    return !!provider && provider.disabled !== true;
+  });
+  if (usable.length === 0) return undefined;
+  for (const target of usable) {
+    const provider = config.providers[target.provider]!;
+    const quota = getCachedProviderRoutingQuota(target.provider, provider, now);
+    if (!quota || !cachedProviderQuotaIsExhausted(quota, now)) return undefined;
+  }
+  return "no_credit";
 }
 
 function smoothWeightedIndex(
@@ -95,6 +174,7 @@ function smoothWeightedIndex(
  * unknown (Infinity).
  */
 function resetWindowIndex(
+  config: OcxConfig,
   targets: Required<OcxComboTarget>[],
   eligible: (target: Required<OcxComboTarget>) => boolean,
   now = Date.now(),
@@ -104,7 +184,9 @@ function resetWindowIndex(
   for (let index = 0; index < targets.length; index++) {
     const target = targets[index]!;
     if (!eligible(target)) continue;
-    const remaining = quotaResetRemainingMs(getCachedProviderQuota(target.provider, now), now);
+    const remaining = quotaResetRemainingMs(
+      getCachedProviderRoutingQuota(target.provider, config.providers[target.provider], now), now,
+    );
     // Strict comparison deliberately retains configured order for ties,
     // including the no-snapshot fallback where every value is Infinity.
     if (selected < 0 || remaining < smallestRemaining) {
@@ -121,14 +203,17 @@ export function pickComboTarget(
   options: {
     exclude?: Iterable<string>;
     eligible?: (target: Required<OcxComboTarget>) => boolean;
+    now?: number;
   } = {},
 ): ComboPick | null {
   const writerGeneration = captureConfigGeneration();
   const combo = getCombo(config, comboId);
   if (!combo) throw new UnknownComboError(comboId);
   const excluded = new Set(options.exclude ?? []);
+  const now = options.now ?? Date.now();
   const eligible = (target: Required<OcxComboTarget>): boolean =>
-    targetProviderIsUsable(config, target)
+    targetProviderIsUsable(config, target, now)
+    && !isComboTargetInCooldown(comboId, target, now)
     && !excluded.has(targetKey(target))
     && (options.eligible?.(target) ?? true);
 
@@ -187,7 +272,7 @@ export function pickComboTarget(
       }
     }
   } else if (combo.strategy === "reset-window") {
-    targetIndex = resetWindowIndex(combo.targets, eligible);
+    targetIndex = resetWindowIndex(config, combo.targets, eligible, now);
   } else {
     targetIndex = combo.targets.findIndex(eligible);
   }
@@ -248,19 +333,93 @@ export function advanceComboAfterFailure(
   pick: ComboPick,
   options: {
     retryAfter?: string | null;
+    resetAt?: unknown | unknown[];
     now?: number;
+    cooldownMs?: number;
     eligible?: (target: Required<OcxComboTarget>) => boolean;
+    cooldownScope?: ComboFailureCooldownScope;
+    status?: number;
+    code?: string | null;
+    message?: string;
   } = {},
 ): ComboPick | null {
   noteComboFailure(pick.comboId, pick.target, pick.writerGeneration);
-  coolComboTarget(pick.comboId, pick.target, {
-    ...options,
-    writerGeneration: pick.writerGeneration,
-  });
+  const combo = getCombo(config, pick.comboId);
+  // "none" records no cooldown at all: the failure described the request, not the target, so
+  // the target must stay immediately selectable for the next (differently shaped) request.
+  if (options.cooldownScope !== "none") {
+    const cooldownTargets = options.cooldownScope === "provider" && combo
+      ? combo.targets.filter(target => target.provider === pick.target.provider)
+      : [pick.target];
+    for (const target of cooldownTargets) {
+      coolComboTarget(pick.comboId, target, {
+        ...options,
+        cooldownMs: options.cooldownMs ?? combo?.cooldownMs,
+        writerGeneration: pick.writerGeneration,
+      });
+    }
+  }
   return pickComboTarget(config, pick.comboId, {
     exclude: pick.attempted,
+    now: options.now,
     eligible: target => !isComboTargetInCooldown(pick.comboId, target, options.now)
       && (options.eligible?.(target) ?? true),
+  });
+}
+
+export async function pickComboTargetWithWait(
+  config: OcxConfig,
+  comboId: string,
+  options: {
+    exclude?: Iterable<string>;
+    eligible?: (target: Required<OcxComboTarget>) => boolean;
+    waitForCooldownMs: number;
+    abortSignal?: AbortSignal;
+    now?: number;
+    sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+  },
+): Promise<ComboPick | null> {
+  const now = options.now ?? Date.now();
+  const excluded = new Set(options.exclude ?? []);
+  const customEligible = options.eligible;
+  const eligible = (target: Required<OcxComboTarget>): boolean =>
+    !isComboTargetInCooldown(comboId, target, now)
+    && (customEligible?.(target) ?? true);
+  const pick = pickComboTarget(config, comboId, { exclude: excluded, eligible, now });
+  if (pick || options.waitForCooldownMs <= 0 || options.abortSignal?.aborted) return pick;
+  const combo = getCombo(config, comboId);
+  if (!combo) throw new UnknownComboError(comboId);
+  const waitingTargets = combo.targets.filter(target =>
+    targetProviderIsUsable(config, target, now)
+    && !excluded.has(targetKey(target))
+    && isComboTargetInCooldown(comboId, target, now)
+    && (customEligible?.(target) ?? true),
+  );
+  const earliest = earliestComboCooldown(comboId, waitingTargets, now);
+  if (earliest === undefined) return null;
+  const delay = earliest.expiry - now;
+  if (delay > options.waitForCooldownMs) return null;
+  // The expiry computation above is the single source of truth for the wait budget.
+  // Its target preserves configured order for ties.
+  const target = earliest.target;
+  console.warn(
+    `[combo] ${comboId}: all targets cooling, waiting ${delay}ms for ${targetKey(target)}`,
+  );
+  try {
+    await (options.sleep ?? sleepWithAbort)(delay, options.abortSignal);
+  } catch (error) {
+    if (options.abortSignal?.aborted) return null;
+    throw error;
+  }
+  if (options.abortSignal?.aborted) return null;
+  // Management updates can delete or rename the combo while this request sleeps.
+  if (!getCombo(config, comboId)) return null;
+  return pickComboTarget(config, comboId, {
+    exclude: excluded,
+    now: now + delay,
+    eligible: targetCandidate =>
+      !isComboTargetInCooldown(comboId, targetCandidate, now + delay)
+      && (customEligible?.(targetCandidate) ?? true),
   });
 }
 

@@ -76,3 +76,4 @@ export function collectAmbiguousDottedAliases(specGroups: readonly unknown[]): S
   for (const [alias, owner] of owners) if (owner === null) ambiguous.add(alias);
   return ambiguous;
 }
+

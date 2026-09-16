@@ -1,54 +1,49 @@
+import { createHash } from "node:crypto";
 import type { OcxProviderConfig } from "../types";
+import { registryEntryForProviderDestination } from "./registry";
 
-export const OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";
 export const OPENCODE_GO_SESSION_HEADER = "x-opencode-session";
-export const OPENCODE_GO_USER_AGENT = "opencodex";
-export const OPENCODE_GO_SESSION_REQUIRED_MESSAGE =
-  "OpenCode Go requires a stable per-conversation session identity; provide thread-id, session_id/session-id, x-codex-parent-thread-id, or x-opencode-session.";
 
-function normalizedEndpoint(value: string): string {
-  return value.trim().replace(/\/+$/, "").toLowerCase();
+function hasHeaderCaseInsensitive(
+  headers: Record<string, string> | undefined,
+  name: string,
+): boolean {
+  const target = name.toLowerCase();
+  return Object.keys(headers ?? {}).some(key => key.toLowerCase() === target);
 }
 
-function headerKey(headers: Record<string, string> | undefined, name: string): string | undefined {
-  const target = name.toLowerCase();
-  return Object.keys(headers ?? {}).find(key => key.toLowerCase() === target);
-}
-
-function deleteHeaderCaseInsensitively(headers: Record<string, string>, name: string): void {
-  const target = name.toLowerCase();
-  for (const key of Object.keys(headers)) {
-    if (key.toLowerCase() === target) delete headers[key];
-  }
+/** Derive a provider-scoped opaque value without exposing Codex task or subagent ids. */
+export function deriveOpenCodeGoSessionId(sessionLane: string): string {
+  const digest = createHash("sha256")
+    .update("opencodex/opencode-go/session/v1\0")
+    .update(sessionLane)
+    .digest("hex")
+    .slice(0, 32);
+  return `ocx_${digest}`;
 }
 
 /**
- * OpenCode Go is a fixed key-auth destination. Match by destination rather than configured
- * provider name so a renamed preset still receives the protocol-required session header.
- */
-export function isOpenCodeGoTransport(provider: Pick<OcxProviderConfig, "baseUrl" | "authMode">): boolean {
-  return (provider.authMode ?? "key") === "key"
-    && normalizedEndpoint(provider.baseUrl) === normalizedEndpoint(OPENCODE_GO_BASE_URL);
-}
-
-/**
- * Attach OpenCode Go's required stable per-conversation affinity header without persisting it.
- * The caller supplies an already opaque/stable conversation id; static user config is never used
- * as the session authority because one constant header across conversations defeats the contract.
+ * Add Go affinity only to the canonical fixed-key destination.
  *
- * Also identify this proxy truthfully when the operator did not provide a User-Agent. OpenCode Go
- * explicitly asks third-party clients not to send a generic runtime user agent (for example the
- * Node/Bun fetch default).
+ * Callers on the request path resolve the lane with `getOrAllocateRequestSessionLane`, which returns
+ * real conversation identity when the client supplied it and a per-request value otherwise, so a
+ * request reaching this helper from the proxy always carries a lane. The `!sessionLane` guard stays
+ * for direct callers that have no request context; it is not a per-request identity of its own, and
+ * minting one here would hand each retry a different value.
  */
-export function withOpenCodeGoSession(
-  provider: OcxProviderConfig,
-  conversationId: string | undefined,
-): OcxProviderConfig {
-  if (!isOpenCodeGoTransport(provider)) return provider;
-  const headers = { ...(provider.headers ?? {}) };
-  deleteHeaderCaseInsensitively(headers, OPENCODE_GO_SESSION_HEADER);
-  if (!headerKey(headers, "user-agent")) headers["User-Agent"] = OPENCODE_GO_USER_AGENT;
-  const session = conversationId?.trim();
-  if (session) headers[OPENCODE_GO_SESSION_HEADER] = session;
-  return { ...provider, headers };
+export function resolveOpenCodeGoTransport<T extends OcxProviderConfig>(
+  provider: T,
+  sessionLane: string | undefined,
+): T {
+  if (registryEntryForProviderDestination(provider)?.id !== "opencode-go") return provider;
+  if (!sessionLane) return provider;
+  if (hasHeaderCaseInsensitive(provider.headers, OPENCODE_GO_SESSION_HEADER)) return provider;
+
+  return {
+    ...provider,
+    headers: {
+      ...(provider.headers ?? {}),
+      [OPENCODE_GO_SESSION_HEADER]: deriveOpenCodeGoSessionId(sessionLane),
+    },
+  };
 }

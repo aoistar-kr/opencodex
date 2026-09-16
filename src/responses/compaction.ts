@@ -20,6 +20,10 @@ import { createHash } from "node:crypto";
 export const OCX_COMPACTION_PREFIX = "ocx1:";
 export const OCX_HYBRID_COMPACTION_PREFIX = "ocx2:";
 
+export const OCX_NATIVE_REPLAY_RECOVERY_NOTE =
+  "Threads compacted through a routed provider can contain OpenCodeX-owned ocx1 state. "
+  + "Before resuming one through native Codex, run `ocx recover-history --ocx-compaction <thread-id> --yes`.";
+
 /** Mirrors codex-rs core/templates/compact/prompt.md (the local-compaction instruction). */
 export const COMPACT_PROMPT = `You are performing a CONTEXT CHECKPOINT COMPACTION. Create a handoff summary for another LLM that will resume the task.
 

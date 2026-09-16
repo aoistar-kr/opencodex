@@ -24,6 +24,24 @@ const TERMINAL_EVENTS = new Set([
   "response.incomplete",
 ]);
 
+const RETRYABLE_ZERO_OUTPUT_INCOMPLETE_REASONS = new Set([
+  "adapter_eof",
+  "missing_terminal_event",
+  "upstream_stall_timeout",
+]);
+
+function retryableZeroOutputTerminal(payload: unknown): boolean {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
+  const event = payload as {
+    type?: unknown;
+    response?: { incomplete_details?: { reason?: unknown } };
+  };
+  if (event.type === "response.failed") return true;
+  if (event.type !== "response.incomplete") return false;
+  const reason = event.response?.incomplete_details?.reason;
+  return typeof reason === "string" && RETRYABLE_ZERO_OUTPUT_INCOMPLETE_REASONS.has(reason);
+}
+
 /**
  * Decide when replaying the request on another combo target would risk duplicating
  * client-visible output or a tool-side effect. Unknown event types commit the child
@@ -117,9 +135,13 @@ export type ComboStreamPreflightResult =
 export async function preflightComboStreamResponse(
   response: Response,
   logCtx: RequestLogContext,
+  retryableTerminal: (payload: unknown) => boolean = retryableZeroOutputTerminal,
+  options?: { allowMissingContentType?: boolean; replayReadErrors?: boolean },
 ): Promise<ComboStreamPreflightResult> {
   const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
-  if (!response.ok || !response.body || !contentType.includes("text/event-stream")) {
+  const isEventStream = contentType.includes("text/event-stream")
+    || (!contentType && options?.allowMissingContentType === true);
+  if (!response.ok || !response.body || !isEventStream) {
     return { kind: "accepted", response };
   }
 
@@ -128,22 +150,34 @@ export async function preflightComboStreamResponse(
   let bufferedBytes = 0;
   let outputCommitted = false;
   let terminalStatus: ResponsesTerminalStatus | undefined;
-  let failedPayload: Record<string, unknown> | undefined;
+  let retryableTerminalPayload: Record<string, unknown> | undefined;
   const inspector = createSseInspector({
     logCtx,
     onParsedPayload: payload => {
-      if (comboStreamPayloadCommitsOutput(payload)) outputCommitted = true;
+      const retryable = retryableTerminal(payload);
+      const matchedBareError = retryable && payload !== null && typeof payload === "object"
+        && !Array.isArray(payload) && (payload as { type?: unknown }).type === "error";
+      // Only an explicit caller predicate may opt a known bare error into replay.
+      // Default combo classification still commits unknown/error events.
+      if (comboStreamPayloadCommitsOutput(payload) && !matchedBareError) outputCommitted = true;
       if (!payload || typeof payload !== "object" || Array.isArray(payload)) return;
-      if ((payload as { type?: unknown }).type === "response.failed") {
-        failedPayload = payload as Record<string, unknown>;
-      }
+      if (retryable) retryableTerminalPayload = payload as Record<string, unknown>;
     },
     onTerminal: status => { terminalStatus = status; },
   });
 
   try {
     for (;;) {
-      const next = await reader.read();
+      let next: Awaited<ReturnType<typeof reader.read>>;
+      try {
+        next = await reader.read();
+      } catch (error) {
+        if (!options?.replayReadErrors) throw error;
+        // The native relay still owns post-header transport failures. Preserve
+        // the bounded prefix and the errored reader; cancelling it here would
+        // erase the failure before either client relay or inspection sees it.
+        return { kind: "accepted", response: replayBufferedResponse(response, reader, buffered) };
+      }
       if (next.done) {
         inspector.finish();
       } else {
@@ -162,9 +196,13 @@ export async function preflightComboStreamResponse(
         inspector.feed(retained);
       }
 
-      if (terminalStatus === "failed" && !outputCommitted && failedPayload) {
-        await reader.cancel("retrying zero-output combo stream failure").catch(() => undefined);
-        return { kind: "failed", response: failedTerminalResponse(response, failedPayload, logCtx) };
+      // A bare error event is not a protocol terminal (terminalStatus stays undefined),
+      // so its exact-message retryable match doubles as the terminal evidence.
+      if ((terminalStatus === "failed" || terminalStatus === "incomplete"
+        || retryableTerminalPayload?.type === "error")
+        && !outputCommitted && retryableTerminalPayload) {
+        await reader.cancel("retrying zero-output combo stream terminal").catch(() => undefined);
+        return { kind: "failed", response: failedTerminalResponse(response, retryableTerminalPayload, logCtx) };
       }
       if (next.done || terminalStatus !== undefined || outputCommitted
         || bufferedBytes >= COMBO_STREAM_PREFLIGHT_MAX_BYTES

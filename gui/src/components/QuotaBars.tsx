@@ -20,13 +20,36 @@ export type QuotaBarRow = {
 /**
  * Window ordering is computed from RAW wire identities BEFORE localization
  * (ranking on translated labels breaks the moment a locale changes copy):
- * shorter windows first — 5h, weekly, cursor first-party, cursor API, monthly.
+ * shorter windows first — 5h, weekly, cursor first-party, cursor API, monthly,
+ * then subscription credits before other custom windows.
  */
 function rawCustomWindowRank(rawLabel: string): number {
   if (rawLabel === "5h") return 0;
   if (rawLabel === "First-party models") return 2;
   if (rawLabel === "API usage") return 3;
+  if (rawLabel === "Total subscription credits") return 4.5;
   return 5;
+}
+
+const SUBSCRIPTION_CREDITS_LABEL = "Total subscription credits";
+
+function canonicalCustomWindowLabel(rawLabel: string): string {
+  return rawLabel.trim().toLowerCase() === SUBSCRIPTION_CREDITS_LABEL.toLowerCase()
+    ? SUBSCRIPTION_CREDITS_LABEL
+    : rawLabel;
+}
+
+/** Coverage metadata carries raw labels, while subscription rows use a canonical identity. */
+export function isCustomQuotaWindowIncomplete(
+  customLabel: string | undefined,
+  incompleteLabels?: ReadonlySet<string>,
+): boolean {
+  if (customLabel === undefined || !incompleteLabels) return false;
+  const canonical = canonicalCustomWindowLabel(customLabel);
+  for (const label of incompleteLabels) {
+    if (canonicalCustomWindowLabel(label) === canonical) return true;
+  }
+  return false;
 }
 
 function localizeCustomQuotaLabel(rawLabel: string, t: TFn): string {
@@ -84,17 +107,36 @@ export function buildQuotaRows(quota: AccountQuota | null, plan: string | null |
     });
   }
   for (const w of displayQuota.customWindows ?? []) {
-    const localized = localizeCustomQuotaLabel(w.label, t);
+    const customLabel = canonicalCustomWindowLabel(w.label);
+    const localized = localizeCustomQuotaLabel(customLabel, t);
     ranked.push({
-      rank: rawCustomWindowRank(w.label),
+      rank: rawCustomWindowRank(customLabel),
       row: {
-        customLabel: w.label,
+        customLabel,
         label: localized,
         limitLabel: localized,
         percent: w.percent,
         resetAt: w.resetAt,
       },
     });
+  }
+  if (displayQuota.creditsUsd && typeof displayQuota.creditsUsd.percent === "number") {
+    const hasSubscriptionCreditsCustom = displayQuota.customWindows?.some(
+      w => canonicalCustomWindowLabel(w.label) === SUBSCRIPTION_CREDITS_LABEL,
+    );
+    if (!hasSubscriptionCreditsCustom) {
+      const localized = localizeCustomQuotaLabel(SUBSCRIPTION_CREDITS_LABEL, t);
+      ranked.push({
+        rank: rawCustomWindowRank(SUBSCRIPTION_CREDITS_LABEL),
+        row: {
+          customLabel: SUBSCRIPTION_CREDITS_LABEL,
+          label: localized,
+          limitLabel: localized,
+          percent: displayQuota.creditsUsd.percent,
+          resetAt: displayQuota.creditsUsd.expiresAt,
+        },
+      });
+    }
   }
   return ranked.sort((a, b) => a.rank - b.rank).map(entry => entry.row);
 }
@@ -106,6 +148,12 @@ export function maxQuotaUtilisation(quota: AccountQuota | null): number {
     .filter((n): n is number => typeof n === "number");
   for (const w of quota.customWindows ?? []) {
     if (typeof w.percent === "number") vals.push(w.percent);
+  }
+  const hasSubscriptionCreditsCustom = quota.customWindows?.some(
+    w => canonicalCustomWindowLabel(w.label) === SUBSCRIPTION_CREDITS_LABEL,
+  );
+  if (!hasSubscriptionCreditsCustom && typeof quota.creditsUsd?.percent === "number") {
+    vals.push(quota.creditsUsd.percent);
   }
   return vals.length ? Math.max(...vals) : -1;
 }
@@ -161,6 +209,23 @@ function barFillStyle(percent: number): CSSProperties {
   return { ["--bar-scale" as string]: String(barWidth(percent) / 100) };
 }
 
+/**
+ * How long ago an observation was taken, bucketed.
+ *
+ * Coarse on purpose: a passively observed quota is only as precise as the moment it was
+ * seen, and a to-the-second age would imply a freshness the number does not have.
+ * Negative elapsed (clock skew between the proxy that wrote it and this browser) reads as
+ * just-now rather than as a negative age.
+ */
+export function formatObservedAge(observedAt: number, t: TFn, now = Date.now()): string | null {
+  const elapsed = now - observedAt;
+  if (!Number.isFinite(elapsed) || elapsed < 60_000) return null;
+  // Units go through t(): the suffix is copy, and "m"/"h"/"d" do not survive translation.
+  if (elapsed < 60 * 60_000) return t("quota.ageMinutes").replace("{n}", String(Math.floor(elapsed / 60_000)));
+  if (elapsed < 24 * 60 * 60_000) return t("quota.ageHours").replace("{n}", String(Math.floor(elapsed / (60 * 60_000))));
+  return t("quota.ageDays").replace("{n}", String(Math.floor(elapsed / (24 * 60 * 60_000))));
+}
+
 export default function QuotaBars({
   quota,
   plan,
@@ -171,6 +236,7 @@ export default function QuotaBars({
   pending = false,
   incompleteWindowKeys,
   incompleteCustomWindowLabels,
+  observedAt,
 }: {
   quota: AccountQuota | null;
   plan?: string | null;
@@ -187,9 +253,26 @@ export default function QuotaBars({
   /** Optional overview-only coverage status. Other quota surfaces remain unchanged when omitted. */
   incompleteWindowKeys?: ReadonlySet<QuotaWindowKey>;
   incompleteCustomWindowLabels?: ReadonlySet<string>;
+  /**
+   * When set, state how old these numbers are.
+   *
+   * Set ONLY for a passively observed quota, where the value arrives as a side effect of
+   * a real request and nothing refreshes it. A probed provider re-reads on its own TTL,
+   * so an age line there would be noise; here its absence would let a days-old reading
+   * look live.
+   */
+  observedAt?: number;
 }) {
   const { locale } = useI18n();
   const rows = buildQuotaRows(quota, plan, t);
+  // Rendered above the bars in both layouts. Null age (under a minute, or no observation)
+  // renders nothing rather than "just now", which would be one more thing to read.
+  const observedAge = observedAt === undefined ? null : formatObservedAge(observedAt, t);
+  const observedLine = observedAge === null ? null : (
+    <p className="quota-observed muted" title={t("quota.observedHint")}>
+      {t("quota.observedAgo").replace("{age}", observedAge)}
+    </p>
+  );
   if (rows.length === 0) {
     if (!pending) return null;
     if (layout === "stacked") {
@@ -234,6 +317,7 @@ export default function QuotaBars({
   if (layout === "stacked") {
     return (
       <div className={`quota-stacked${className ? ` ${className}` : ""}`}>
+        {observedLine}
         {rows.map(row => (
           <StackedQuotaRow
             key={row.limitLabel}
@@ -243,7 +327,7 @@ export default function QuotaBars({
             locale={locale}
             incomplete={row.windowKey
               ? incompleteWindowKeys?.has(row.windowKey) === true
-              : row.customLabel !== undefined && incompleteCustomWindowLabels?.has(row.customLabel) === true}
+              : isCustomQuotaWindowIncomplete(row.customLabel, incompleteCustomWindowLabels)}
           />
         ))}
       </div>
@@ -251,9 +335,11 @@ export default function QuotaBars({
   }
   return (
     <div className={`codex-account-quota-slot quota-compact${className ? ` ${className}` : ""}`}>
+      {observedLine}
       {rows.map(row => (
         <QuotaRow
           key={row.label}
+          credits={row.customLabel === SUBSCRIPTION_CREDITS_LABEL}
           label={row.label}
           percent={row.percent}
           resetAt={row.resetAt}
@@ -266,7 +352,8 @@ export default function QuotaBars({
   );
 }
 
-function QuotaRow({ label, percent, resetAt, threshold, t, locale }: {
+function QuotaRow({ credits, label, percent, resetAt, threshold, t, locale }: {
+  credits?: boolean;
   label: string;
   percent: number;
   resetAt?: number;
@@ -283,7 +370,7 @@ function QuotaRow({ label, percent, resetAt, threshold, t, locale }: {
     : undefined;
   const hasReset = reset.day !== "" || reset.time !== "";
   return (
-    <div className={`quota-row${warn ? " quota-row--warn" : ""}${exhausted ? " quota-row--exhausted" : ""}`}>
+    <div className={`quota-row${credits ? " quota-row--credits" : ""}${warn ? " quota-row--warn" : ""}${exhausted ? " quota-row--exhausted" : ""}`}>
       <span className="quota-label" title={resetTitle}>{label}</span>
       <span className="quota-reset-label">{hasReset ? t("codexAuth.resets") : ""}</span>
       <span className="quota-reset-day">{reset.day}</span>

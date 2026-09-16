@@ -1,5 +1,6 @@
 import type { OcxProviderConfig } from "./types";
 import { modelInList } from "./types";
+import { dropLearnedUnsupportedReasoningEfforts, ensureReasoningMetadataSnapshot, reasoningEffortsFromMetadata } from "./providers/reasoning-metadata";
 
 // Descriptions mirror the upstream bundled models.json canonical wording (openai/codex PR #31684).
 export const CODEX_REASONING_LEVELS: { effort: string; description: string }[] = [
@@ -80,6 +81,38 @@ export function codexEffortRank(effort: string): number {
   return CODEX_REASONING_ORDER.indexOf(effort);
 }
 
+/**
+ * Resolve a requested effort against the rungs a target actually supports, never
+ * raising above the request.
+ *
+ * Returns the request itself when supported, otherwise the highest supported rung
+ * at or below it, otherwise the lowest supported rung, and `undefined` when the
+ * supported set contains no rankable rung at all (including the empty ladder, which
+ * is how a no-reasoning model is expressed).
+ *
+ * This lives here rather than beside its first caller because two very different
+ * planes need the same answer: the catalog advertises a combo's default effort, and
+ * the request path injects one. When they disagreed, the catalog promised `max` and
+ * the runtime silently sent nothing, so the provider default applied instead (#3108).
+ * `reasoning-effort.ts` is a leaf — its only import is `./types` — so the request
+ * path can share this without pulling the catalog plane along.
+ */
+export function resolveEffortAtOrBelow(
+  requested: string | null | undefined,
+  supported: readonly string[],
+): string | undefined {
+  if (!requested) return undefined;
+  if (supported.includes(requested)) return requested;
+  const requestedRank = codexEffortRank(requested);
+  const ranked = supported
+    .map(effort => ({ effort, rank: codexEffortRank(effort) }))
+    .filter(item => item.rank >= 0)
+    .sort((a, b) => a.rank - b.rank);
+  if (ranked.length === 0) return undefined;
+  const atOrBelow = ranked.filter(item => item.rank <= requestedRank);
+  return atOrBelow.at(-1)?.effort ?? ranked[0]!.effort;
+}
+
 export function modelRecordValue<T>(record: Record<string, T> | undefined, modelId: string): T | undefined {
   if (!record) return undefined;
   if (Object.prototype.hasOwnProperty.call(record, modelId)) return record[modelId];
@@ -116,8 +149,31 @@ export function sanitizeCodexReasoningEfforts(efforts: readonly string[] | undef
 export function configuredReasoningEfforts(provider: OcxProviderConfig, modelId: string): string[] | undefined {
   if (modelInList(provider.noReasoningModels, modelId)) return [];
   const modelEfforts = modelRecordValue(provider.modelReasoningEfforts, modelId);
-  if (modelEfforts !== undefined) return healMappedTiers(provider, modelId, sanitizeCodexReasoningEfforts(modelEfforts) ?? []);
-  if (provider.reasoningEfforts !== undefined) return healMappedTiers(provider, modelId, sanitizeCodexReasoningEfforts(provider.reasoningEfforts) ?? []);
+  // Rungs this account actually had refused are removed for every ladder source (registry
+  // config or models.dev), so a learned refusal is honoured even when the ladder is pinned in
+  // code; otherwise a rejected pinned rung would replay-and-fail on every request.
+  if (modelEfforts !== undefined) {
+    return dropLearnedUnsupportedReasoningEfforts(provider, modelId, healMappedTiers(provider, modelId, sanitizeCodexReasoningEfforts(modelEfforts) ?? []));
+  }
+  if (provider.reasoningEfforts !== undefined) {
+    return dropLearnedUnsupportedReasoningEfforts(provider, modelId, healMappedTiers(provider, modelId, sanitizeCodexReasoningEfforts(provider.reasoningEfforts) ?? []));
+  }
+  // models.dev publishes the per-model ladder that routed providers never expose on /models.
+  // (OpenCode Zen Go answers ids only). Only consulted when nothing was configured for this
+  // model, so every hand-written contract stays authoritative. The snapshot refreshes itself in
+  // the background; no snapshot means the previous behaviour.
+  // The refresh is asked for only once a snapshot has already answered, which means it only ever
+  // refreshes a STALE snapshot. Review asked for the opposite — refresh when the snapshot is
+  // missing or corrupt, since that is the case this lookup cannot serve. That is declined here:
+  // a missing snapshot is the default state of every fresh install and every test process, so
+  // requesting the fetch here puts a models.dev request on the request path of the first routed
+  // turn to a gated destination. Refreshing a snapshot that does not exist is catalog-sync work,
+  // not request work.
+  const fromMetadata = reasoningEffortsFromMetadata(provider, modelId);
+  if (fromMetadata !== undefined) {
+    ensureReasoningMetadataSnapshot();
+    return dropLearnedUnsupportedReasoningEfforts(provider, modelId, healMappedTiers(provider, modelId, fromMetadata));
+  }
   return undefined;
 }
 

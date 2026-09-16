@@ -1,16 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import {
   OPENCODE_GO_SESSION_HEADER,
-  OPENCODE_GO_USER_AGENT,
-  isOpenCodeGoTransport,
-  withOpenCodeGoSession,
+  deriveOpenCodeGoSessionId,
+  resolveOpenCodeGoTransport,
 } from "../src/providers/opencode-go-transport";
 import type { OcxProviderConfig } from "../src/types";
 
 function goProvider(headers?: Record<string, string>): OcxProviderConfig {
   return {
     adapter: "openai-chat",
-    baseUrl: "https://opencode.ai/zen/go/v1/",
+    baseUrl: "https://opencode.ai/zen/go/v1",
     authMode: "key",
     apiKey: "test-key",
     ...(headers ? { headers } : {}),
@@ -18,47 +17,34 @@ function goProvider(headers?: Record<string, string>): OcxProviderConfig {
 }
 
 describe("OpenCode Go transport session header", () => {
-  test("matches the fixed Go destination independent of provider naming", () => {
-    expect(isOpenCodeGoTransport(goProvider())).toBe(true);
-    expect(isOpenCodeGoTransport({ ...goProvider(), baseUrl: "https://example.test/v1" })).toBe(false);
-    expect(isOpenCodeGoTransport({ ...goProvider(), authMode: "oauth" })).toBe(false);
+  test("derives a stable opaque provider-scoped session id", () => {
+    const lane = "thread-0123456789abcdef";
+    const first = deriveOpenCodeGoSessionId(lane);
+    expect(first).toBe(deriveOpenCodeGoSessionId(lane));
+    expect(first).toMatch(/^ocx_[a-f0-9]{32}$/);
+    expect(first).not.toContain(lane);
+    expect(deriveOpenCodeGoSessionId("other-thread")).not.toBe(first);
   });
 
-  test("injects the stable session id and identifies opencodex", () => {
-    const resolved = withOpenCodeGoSession(goProvider(), "0123456789abcdef0123456789abcdef");
-    const headers = new Headers(resolved.headers);
-    expect(headers.get(OPENCODE_GO_SESSION_HEADER)).toBe("0123456789abcdef0123456789abcdef");
-    expect(headers.get("user-agent")).toBe(OPENCODE_GO_USER_AGENT);
-  });
+  test("injects affinity only for the registered OpenCode Go destination", () => {
+    const resolved = resolveOpenCodeGoTransport(goProvider(), "conversation-specific");
+    expect(new Headers(resolved.headers).get(OPENCODE_GO_SESSION_HEADER))
+      .toBe(deriveOpenCodeGoSessionId("conversation-specific"));
 
-  test("replaces a static session header case-insensitively but preserves an explicit user agent", () => {
-    const resolved = withOpenCodeGoSession(goProvider({
-      "X-OpenCode-Session": "wrong-global-constant",
-      "user-agent": "my-coding-agent/1.0",
-    }), "conversation-specific");
-    const headers = new Headers(resolved.headers);
-    expect(headers.get(OPENCODE_GO_SESSION_HEADER)).toBe("conversation-specific");
-    expect(headers.get("user-agent")).toBe("my-coding-agent/1.0");
-  });
-
-  test("collapses duplicate differently-cased session headers to one authoritative value", () => {
-    const resolved = withOpenCodeGoSession(goProvider({
-      "x-opencode-session": "wrong-lowercase-value",
-      "X-OpenCode-Session": "wrong-mixed-case-value",
-    }), "conversation-specific");
-    const sessionKeys = Object.keys(resolved.headers ?? {})
-      .filter(key => key.toLowerCase() === OPENCODE_GO_SESSION_HEADER);
-    expect(sessionKeys).toEqual([OPENCODE_GO_SESSION_HEADER]);
-    expect(new Headers(resolved.headers).get(OPENCODE_GO_SESSION_HEADER)).toBe("conversation-specific");
-  });
-
-  test("does not mutate unrelated providers, but still identifies opencodex when no session is available", () => {
     const other = { ...goProvider(), baseUrl: "https://example.test/v1" };
-    expect(withOpenCodeGoSession(other, "conversation-specific")).toBe(other);
+    expect(resolveOpenCodeGoTransport(other, "conversation-specific")).toBe(other);
+  });
 
-    const resolved = withOpenCodeGoSession(goProvider({ "X-OpenCode-Session": "wrong-global-constant" }), undefined);
-    const headers = new Headers(resolved.headers);
-    expect(headers.get(OPENCODE_GO_SESSION_HEADER)).toBeNull();
-    expect(headers.get("user-agent")).toBe(OPENCODE_GO_USER_AGENT);
+  test("preserves an explicit session header case-insensitively", () => {
+    const provider = goProvider({ "X-OpenCode-Session": "operator-owned" });
+    const resolved = resolveOpenCodeGoTransport(provider, "conversation-specific");
+    expect(resolved).toBe(provider);
+    expect(new Headers(resolved.headers).get(OPENCODE_GO_SESSION_HEADER)).toBe("operator-owned");
+  });
+
+  test("fails closed to the unchanged provider when no conversation lane is available", () => {
+    const provider = goProvider();
+    expect(resolveOpenCodeGoTransport(provider, undefined)).toBe(provider);
+    expect(new Headers(provider.headers).get(OPENCODE_GO_SESSION_HEADER)).toBeNull();
   });
 });

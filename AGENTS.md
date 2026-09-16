@@ -12,14 +12,33 @@ Bun-native TypeScript with no separate server compile step.
 ## Repository layout
 
 - `src/` — proxy runtime: routing, provider adapters, config, management API.
-- `tests/` — flat Bun tests (`tests/*.test.ts`); shared fixtures in
-  `tests/helpers/`, broader scenarios in `tests/e2e-style/`.
+- `tests/` — Bun tests in domain directories that mirror `src/`
+  (`tests/<domain>/*.test.ts`; `providers/` and `adapters/` have one more
+  level for the larger vendors). The map is `scripts/test-layout/layout.json`
+  and `tests/test-layout.test.ts` enforces it: every file resolves to a
+  domain and sits in it, and only the two layout guards live at the root.
+  Shared helpers in `tests/helpers/`, fixtures in `tests/fixtures/`, broader
+  scenarios in `tests/e2e-style/`. Source-oracle tests resolve the repository
+  through `tests/helpers/repo-root.ts` (`repoRoot()`, `repoPath()`,
+  `helperPath()`, `fixturePath()`), never `import.meta.dir + "/.."`. A new
+  test file lands in its domain directory and needs an entry in both
+  `layout.json` `explicit` and `tests/fixtures/test-layout-expected.json`
+  (`tests/test-layout-tooling.test.ts` names the missing one); the regex
+  seeds in `layout.json` place a conventionally named file until then.
+  History: `devlog/_fin/260905_test_modularization_and_windows/`.
 - `gui/` — React + Vite dashboard; packaged output is served from `gui/dist`.
 - `docs-site/` — public docs (Astro + Starlight), deployed to GitHub Pages.
 - `go/` — retired Go native-runtime experiment; kept only where the TypeScript
   runtime still references it. New work does not go here.
 - `structure/` — maintainer invariants and architecture notes; read before
-  changing shared subsystems.
+  changing shared subsystems. [`structure/INDEX.md`](./structure/INDEX.md) is the
+  reading order and the source-ownership table, and
+  [`structure/AGENTS.md`](./structure/AGENTS.md) holds the rules for changing
+  anything in there. Ownership is not advisory: changing an owned source area
+  obliges the same change to update its doc, and `bun run structure:check`
+  (wired into the suite by `tests/ci-workflows/structure-ssot.test.ts`) fails on a
+  doc that names a path this tree no longer has, on an invariant whose test is
+  gone, and on a new `src/` area nobody claimed.
 - `scripts/` — release and maintenance tooling; `scripts/release.ts` is the
   release authority.
 - `devlog/` — planning and investigation notes, tracked in this repository. See
@@ -41,7 +60,7 @@ directly or transitively:
 - `src/server/lifecycle.ts`
 - `src/server/responses/core.ts`
 
-`tests/core-lab-boundary.test.ts` enforces this by walking the runtime import
+`tests/lab/core-lab-boundary.test.ts` enforces this by walking the runtime import
 graph and printing the offending chain on failure. It is not a style rule: the
 original violation hid in a six-hop chain
 (`assemble → quota → auth-api → native-main-admission → lifecycle → lab`) where
@@ -93,7 +112,7 @@ contributor who ignores it entirely still passes every gate. `privacy:scan` does
 read it — that is deliberate, and it is what makes a public devlog safe rather
 than merely visible.
 
-Two mechanical guards in `tests/repo-hygiene.test.ts` back this up: no `160000`
+Two mechanical guards in `tests/ci-workflows/repo-hygiene.test.ts` back this up: no `160000`
 gitlink may be tracked anywhere, and neither the vendored reference clones nor
 the security triage excised before publication may reappear in the index. Both
 were driven red once to prove they are not vacuous. The gitlink assertion exists
@@ -138,8 +157,8 @@ say where it is; do not add it to `devlog/`, `structure/`, or `docs-site/`.
 ## User-consent actions
 
 Some actions write to the **user's own accounts and identity** rather than to
-this repository, and an agent must never perform or auto-answer them. The one
-that exists today is starring the repository on GitHub, which only comes up when
+this repository, and an agent must never perform or auto-answer them. One example
+is starring the repository on GitHub, which only comes up when
 an agent is *running* opencodex — not when it is working on this codebase.
 
 The rule lives in [`AGENTS_INSTALL.md`](./AGENTS_INSTALL.md), which is the file
@@ -151,8 +170,8 @@ What matters for development work: the enforcement is code, not prose —
 [`src/cli/agent-driven.ts`](./src/cli/agent-driven.ts),
 [`src/cli/star-prompt.ts`](./src/cli/star-prompt.ts), and
 [`src/server/management/sidebar-routes.ts`](./src/server/management/sidebar-routes.ts),
-covered by `tests/startup-prompt.test.ts`, `tests/agent-driven.test.ts`, and
-`tests/sidebar-routes.test.ts`. If you add another action that spends the user's
+covered by `tests/server/startup-prompt.test.ts`, `tests/cli/agent-driven.test.ts`, and
+`tests/server/sidebar-routes.test.ts`. If you add another action that spends the user's
 identity, credits, or reputation, gate it the same way rather than relying on a
 prompt an agent can answer, and document it in `AGENTS_INSTALL.md`.
 
@@ -175,6 +194,8 @@ bun run test:changed   # import-graph tests against the resolved `dev` merge bas
 bun run test           # full tests/ suite (PR-ready / explicit ask only)
 bun run lint:gui       # GUI eslint
 bun run privacy:scan   # credential/privacy scan used by CI
+bun run structure:check # structure/ doc-map, ownership, and invariant-binding gate
+bun run structure:index # regenerate structure/INDEX.md from structure/manifest.json
 bun run build:gui      # Vite GUI build
 ```
 
@@ -187,12 +208,13 @@ bun run skill:surface        # regenerate after adding a capability
 bun run skill:surface:check  # what CI asserts
 ```
 
-`tests/skill-ocx.test.ts` fails if the committed map drifts from `src/cli/capabilities.ts`, and
+`tests/ci-workflows/skill-ocx.test.ts` fails if the committed map drifts from `src/cli/capabilities.ts`, and
 also if the hand-written pages name a command the registry does not have. That second check is not
 hypothetical: it caught a documented `ocx request-history` that never existed.
 
 During implementation, use the smallest focused checks that directly cover the
-changed subsystem. Prefer `bun test tests/<name>.test.ts` for a known file, or
+changed subsystem. Prefer `bun test tests/<domain>/<name>.test.ts` for a known
+file, `bun test tests/<domain>` for one subsystem, or
 `bun run test:changed` when the touch set is broader than one file. Do **not**
 run repository-wide `bun run test` or a bare `bun test` with no file arguments
 for a scoped change by default. `bun run test:changed` follows Bun's parsed module graph: it
@@ -263,6 +285,17 @@ than nudged.
   `Closes #<number>` to link it. GitHub auto-closes the linked issue only
   when the PR merges into the default branch (`main`); PRs here target
   `dev`, so close the issue manually once the change is on `dev`.
+- **Landing another author's work:** reimplementing, superseding, carrying, or
+  rebasing someone else's pull request requires a `Co-authored-by` trailer
+  naming that author, in the description or in a branch commit so it survives
+  the squash. Saying it in prose is not equivalent — the trailer is what GitHub
+  reads for the contributor graph, and a sentence in a commit body is read by
+  nothing. This repository did it both ways for months: `53c09a247` says "Clean
+  reimplementation of #3193" and names the author in a trailer, `5734a1caf` says
+  "Reimplements #2797 by @rrmlima" and names nobody, so that contribution is
+  invisible on its author's profile. The 27 landings already in that state are
+  recorded in [`CREDITS.md`](./CREDITS.md); `missing_coauthor_credit` in
+  `.github/scripts/pr-carry-attribution.cjs` is why the list should not grow.
 
 ## Branch policy
 
@@ -307,9 +340,13 @@ keeps the PR a draft.
 Authors with repository push permission skip the ancestry heuristic only. As with approval requirements in
 [`MAINTAINERS.md`](./MAINTAINERS.md), the ancestry heuristic is a CI check
 rather than a branch rule. The branches themselves are protected: `dev`,
-`main`, and `preview` each carry an active ruleset requiring a reviewed pull
-request and blocking force-pushes and deletion, so a direct push to `dev` is
-rejected regardless of `--no-verify`.
+`main`, and `preview` each require a pull request and block force-pushes and deletion.
+For `dev` only, a current maintainer with GitHub `maintain` or `admin` access may
+explicitly integrate through a PR without another maintainer approval, including
+their own PR, under the policy in `MAINTAINERS.md`. Record the decision and exact-head
+CI evidence; keep outstanding maintainer objections and security review separate.
+The bypass is PR-only, so a direct push to `dev` remains rejected regardless of
+`--no-verify`. Contributor review and `main`/`preview` rules remain unchanged.
 
 [`MAINTAINERS.md`](./MAINTAINERS.md) is authoritative for review and merge
 policy (approvals, CI requirements, security review, promotion). This file

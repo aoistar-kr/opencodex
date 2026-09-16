@@ -1,10 +1,6 @@
 import { readBoundedResponseBody } from "../lib/bounded-body";
 
 const COMMAND_CODE_MODEL_EFFORTS = {
-  "deepseek/deepseek-v4-pro": {
-    efforts: ["high", "max"],
-    profileUrl: "https://commandcode.ai/models/deepseek-v4-pro",
-  },
   "deepseek/deepseek-v4-flash": {
     efforts: ["high", "max"],
     profileUrl: "https://commandcode.ai/models/deepseek-v4-flash",
@@ -103,6 +99,21 @@ const COMMAND_CODE_MODEL_EFFORTS = {
   // 2026-08-13: direct upstream POST with low/medium/high/xhigh/max all 200,
   // ultra 400; reasoningTokens differentiated 114..253; proxy previously stripped
   // the field so effort changes had no effect).
+  //
+  // 1.3 shipped 2026-09-02 as the same-shaped successor to 1.2 (Command Code
+  // publishes meta/muse-spark-1.3 and meta/muse-spark-1.3-contributor alongside
+  // the 1.2 pair, and Zen serves muse-spark-1.3-contributor over the same
+  // /responses wire). It carries the 1.2 ladder because it IS the 1.2 spec: the
+  // upstream ladder statement is per-family, and a narrower guess here would
+  // strip an effort the gateway accepts. Additive — 1.2 and 1.1 stay live.
+  "meta/muse-spark-1.3": {
+    efforts: ["low", "medium", "high", "xhigh", "max"],
+    profileUrl: "https://commandcode.ai/models/meta-muse-spark-1.3",
+  },
+  "meta/muse-spark-1.3-contributor": {
+    efforts: ["low", "medium", "high", "xhigh", "max"],
+    profileUrl: "https://commandcode.ai/models/meta-muse-spark-1.3-contributor",
+  },
   "meta/muse-spark-1.2": {
     efforts: ["low", "medium", "high", "xhigh", "max"],
     profileUrl: "https://commandcode.ai/models/meta-muse-spark-1.2",
@@ -114,6 +125,29 @@ const COMMAND_CODE_MODEL_EFFORTS = {
   "meta/muse-spark-1.1": {
     efforts: ["low", "medium", "high", "xhigh", "max"],
     profileUrl: "https://commandcode.ai/models/meta-muse-spark-1.1",
+  },
+  /*
+   * Two live routes that never gained a row here, so the adapter dropped every
+   * requested effort (a client's `max` left the wire as no reasoning parameter
+   * at all) and the preset advertised no effort control for them.
+   *
+   * PROVENANCE, stated plainly: both ladders are inferred from the same-family
+   * rows above — deepseek v4: high..max; the Qwen 3.8 family: low..max — NOT
+   * read from the profile pages. commandcode.ai renders those client-side and
+   * ships an empty reasoning payload, so the self-refresh below is as dead for
+   * these rows as the #2647 block above already documents. Measured live
+   * 2026-09-11: /alpha/generate accepts `reasoning_effort: "max"` on both
+   * routes (HTTP 200). `ultra` is deliberately not offered: the adapter would
+   * strip it, and no profile evidence backs an ultra→max alias the way it does
+   * for v4-pro/v4-flash above.
+   */
+  "deepseek/deepseek-v4.1-flash": {
+    efforts: ["high", "max"],
+    profileUrl: "https://commandcode.ai/models/deepseek-v4-1-flash",
+  },
+  "Qwen/Qwen3.8-Flash": {
+    efforts: ["low", "medium", "high", "max"],
+    profileUrl: "https://commandcode.ai/models/qwen3-8-flash",
   },
 } as const;
 

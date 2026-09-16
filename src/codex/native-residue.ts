@@ -1,5 +1,6 @@
 import {
   closeSync,
+  existsSync,
   fstatSync,
   lstatSync,
   openSync,
@@ -16,7 +17,7 @@ import { Database } from "bun:sqlite";
 
 import { getConfigDir } from "../config";
 import { catalogHasRoutedEntries, parseCatalogJson } from "./catalog/parsing";
-import { codexHistoryBackupId, validateCodexHistoryBackupManifest } from "./history-manifest";
+import { codexHistoryBackupId, legacyCodexHistoryBackupId, validateCodexHistoryBackupManifest } from "./history-manifest";
 import {
   hasInjectedCodexRouting,
   OCX_SECTION_MARKER,
@@ -133,6 +134,13 @@ function resolveRegularFile(path: string): PathResult {
 function readRegularFile(path: string): ReadResult {
   const resolved = resolveRegularFile(path);
   if (resolved.kind !== "path") return resolved;
+  // Root can read a chmod(000) file on Linux, which made the residue verdict
+  // depend on who ran the suite. No read bit means the configured surface is
+  // operationally unreadable to an ordinary Codex process and must remain
+  // indeterminate even when the inspector itself has elevated privileges.
+  if (process.platform !== "win32" && (resolved.stat.mode & 0o444) === 0) {
+    return { kind: "indeterminate", reason: "EACCES: surface has no read permission bits" };
+  }
   try {
     const content = readFileSync(resolved.path, "utf8");
     const after = statSync(resolved.path);
@@ -583,7 +591,13 @@ function classifyHistoryDatabase(path: string): NativeRoutedResidueResult {
 }
 
 function historyBackupPath(stateDatabasePath: string): string {
-  return join(getConfigDir(), `codex-history-backup-${codexHistoryBackupId(stateDatabasePath)}.json`);
+  const canonical = join(getConfigDir(), `codex-history-backup-${codexHistoryBackupId(stateDatabasePath)}.json`);
+  if (existsSync(canonical)) return canonical;
+  // A database path spelled with the Win32 extended-length prefix hashed to a different
+  // manifest name before #4442; that manifest still shadows the database (and a canonical
+  // file always wins over it, with the legacy one left in place).
+  const legacy = join(getConfigDir(), `codex-history-backup-${legacyCodexHistoryBackupId(stateDatabasePath)}.json`);
+  return legacy !== canonical && existsSync(legacy) ? legacy : canonical;
 }
 
 function classifyHistoryBackup(path: string, stateDatabasePath: string): NativeRoutedResidueResult {

@@ -4,6 +4,7 @@
  */
 
 import { SUPPORTED_NATIVE_OPENAI_SLUGS } from "../../src/codex/catalog/native-models";
+import { PROVIDER_QUOTA_MAX_AGE_MS } from "../../src/providers/quota-types";
 import type { TKey } from "./i18n/shared";
 
 export { SUPPORTED_NATIVE_OPENAI_SLUGS };
@@ -54,6 +55,7 @@ const COMBO_STRATEGY_SET = new Set<string>(COMBO_STRATEGIES);
 export function intersectComboEfforts(
   targets: readonly ComboTarget[],
   modelEfforts: ReadonlyMap<string, readonly string[] | undefined>,
+  reasoningEffortMode: "strict" | "adaptive" = "strict",
 ): ComboEffort[] {
   const complete = targets.filter((t) => t.provider.trim() && t.model.trim());
   if (complete.length === 0) return [...COMBO_EFFORTS];
@@ -63,6 +65,9 @@ export function intersectComboEfforts(
     const key = `${target.provider.trim()}/${target.model.trim()}`;
     const listed = modelEfforts.get(key);
     if (listed === undefined) continue;
+    // Adaptive mirrors the served catalog: a target advertising no effort control is
+    // excluded from the intersection rather than collapsing it for every sibling.
+    if (reasoningEffortMode === "adaptive" && listed.length === 0) continue;
     const member = listed.filter((effort) => effortSet.has(effort));
     if (common === null) {
       common = member;
@@ -88,7 +93,7 @@ export type ComboQuotaState = "available" | "exhausted" | "unknown";
 export type ProviderQuotaStates = Readonly<Record<string, ComboQuotaState>>;
 
 /** Matches the management endpoint's bounded last-good quota lifetime. */
-export const COMBO_QUOTA_MAX_AGE_MS = 30 * 60_000;
+export const COMBO_QUOTA_MAX_AGE_MS = PROVIDER_QUOTA_MAX_AGE_MS;
 
 let comboTargetKeySeq = 0;
 
@@ -106,6 +111,10 @@ function normalizeImageInput(value: unknown): "auto" | "disabled" {
   return value === "disabled" ? "disabled" : "auto";
 }
 
+function normalizeReasoningEffortMode(value: unknown): "strict" | "adaptive" {
+  return value === "adaptive" ? "adaptive" : "strict";
+}
+
 export interface ComboItem {
   id: string;
   /** Wire id shown to clients, e.g. combo/free */
@@ -120,6 +129,11 @@ export interface ComboItem {
   stickyLimit: number;
   defaultEffort: ComboEffort | null;
   imageInput?: "auto" | "disabled";
+  /**
+   * Picker-ladder policy. `adaptive` lets targets that advertise no effort control drop
+   * out of the intersection instead of emptying it for the whole group.
+   */
+  reasoningEffortMode?: "strict" | "adaptive";
   targets: ComboTarget[];
 }
 
@@ -228,6 +242,7 @@ export function parseComboList(payload: unknown): ComboItem[] {
       stickyLimit: normalizeStickyLimit(r.stickyLimit),
       defaultEffort: normalizeDefaultEffort(r.defaultEffort),
       imageInput: normalizeImageInput(r.imageInput),
+      reasoningEffortMode: normalizeReasoningEffortMode(r.reasoningEffortMode),
       targets,
     });
   }
@@ -268,133 +283,36 @@ function finiteNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function quotaTimestampIsFresh(value: unknown, now: number): boolean {
-  const timestamp = finiteNumber(value);
-  return timestamp !== null && now - timestamp < COMBO_QUOTA_MAX_AGE_MS;
-}
-
-function nonNegativeInteger(value: unknown): number | null {
-  const number = finiteNumber(value);
-  return number !== null && Number.isInteger(number) && number >= 0 ? number : null;
-}
-
-function aggregateWindowIsComplete(value: unknown, now: number): boolean {
-  const window = recordFromUnknown(value);
-  const usedPercent = finiteNumber(window?.usedPercent);
-  return !!window
-    && usedPercent !== null
-    && usedPercent >= 0
-    && nonNegativeInteger(window.includedAccounts) !== null
-    && (nonNegativeInteger(window.includedAccounts) ?? 0) > 0
-    && nonNegativeInteger(window.excludedAccounts) === 0
-    && window.incomplete === false
-    && quotaTimestampIsFresh(window.updatedAt, now);
-}
-
-function aggregateEvidenceIsComplete(value: unknown, now: number): boolean {
-  const aggregation = recordFromUnknown(value);
-  if (
-    !aggregation
-    || aggregation.kind !== "capacity-weighted-v1"
-    || aggregation.scope !== "routable-known"
-    || aggregation.presentation !== "aggregate"
-    || aggregation.incomplete !== false
-  ) return false;
-
-  for (const key of [
-    "includedAccounts",
-    "excludedAccounts",
-    "unknownPlanAccounts",
-    "missingQuotaAccounts",
-    "pausedAccounts",
-    "reauthAccounts",
-    "staleQuotaAccounts",
-    "partialWindowAccounts",
-  ] as const) {
-    if (nonNegativeInteger(aggregation[key]) === null) return false;
-  }
-  if ((nonNegativeInteger(aggregation.includedAccounts) ?? 0) === 0) return false;
-  for (const key of [
-    "excludedAccounts",
-    "unknownPlanAccounts",
-    "missingQuotaAccounts",
-    "pausedAccounts",
-    "reauthAccounts",
-    "staleQuotaAccounts",
-    "partialWindowAccounts",
-  ] as const) {
-    if (aggregation[key] !== 0) return false;
-  }
-
-  let hasWindow = false;
-  for (const key of ["fiveHour", "weekly", "monthly"] as const) {
-    if (!Object.hasOwn(aggregation, key)) continue;
-    if (!aggregateWindowIsComplete(aggregation[key], now)) return false;
-    hasWindow = true;
-  }
-  if (Object.hasOwn(aggregation, "customWindows")) {
-    if (!Array.isArray(aggregation.customWindows)) return false;
-    for (const value of aggregation.customWindows) {
-      const custom = recordFromUnknown(value);
-      if (!custom || typeof custom.label !== "string" || !custom.label.trim()) return false;
-      if (!aggregateWindowIsComplete(custom, now)) return false;
-      hasWindow = true;
-    }
-  }
-  return hasWindow;
+function routingQuotaFromReport(raw: Record<string, unknown>, now: number): {
+  state: "available" | "exhausted";
+  validUntil: number;
+} | null {
+  const routing = recordFromUnknown(raw.routingQuota);
+  if (!routing || (routing.state !== "available" && routing.state !== "exhausted")) return null;
+  const updatedAt = finiteNumber(routing.updatedAt);
+  const validUntil = finiteNumber(routing.validUntil);
+  if (updatedAt === null || updatedAt < 0 || updatedAt > now
+    || now - updatedAt >= COMBO_QUOTA_MAX_AGE_MS
+    || validUntil === null || validUntil <= now
+    || validUntil > updatedAt + COMBO_QUOTA_MAX_AGE_MS) return null;
+  return { state: routing.state, validUntil };
 }
 
 function quotaStateFromReport(raw: Record<string, unknown>, now: number): ComboQuotaState {
-  if (!quotaTimestampIsFresh(raw.updatedAt, now)) return "unknown";
-  const quota = recordFromUnknown(raw.quota);
-  if (!quota || !quotaTimestampIsFresh(quota.updatedAt, now)) return "unknown";
-  if (raw.aggregation !== undefined && !aggregateEvidenceIsComplete(raw.aggregation, now)) return "unknown";
+  return routingQuotaFromReport(raw, now)?.state ?? "unknown";
+}
 
-  let hasEvidence = false;
-  let exhausted = false;
-  for (const key of ["fiveHourPercent", "weeklyPercent", "monthlyPercent"] as const) {
-    if (!Object.hasOwn(quota, key)) continue;
-    const percent = finiteNumber(quota[key]);
-    if (percent === null || percent < 0) return "unknown";
-    hasEvidence = true;
-    if (percent >= 100) exhausted = true;
+/** The next expiry also wakes the page when no poll response has arrived. */
+export function nextProviderQuotaStateExpiration(reports: unknown, now = Date.now()): number | undefined {
+  if (!Array.isArray(reports)) return undefined;
+  let next: number | undefined;
+  for (const value of reports) {
+    const report = recordFromUnknown(value);
+    if (!report || typeof report.provider !== "string" || !report.provider.trim()) continue;
+    const routing = routingQuotaFromReport(report, now);
+    if (routing && (next === undefined || routing.validUntil < next)) next = routing.validUntil;
   }
-  for (const key of ["fiveHourResetAt", "weeklyResetAt", "monthlyResetAt"] as const) {
-    if (Object.hasOwn(quota, key) && finiteNumber(quota[key]) === null) return "unknown";
-  }
-
-  if (Object.hasOwn(quota, "customWindows")) {
-    if (!Array.isArray(quota.customWindows)) return "unknown";
-    for (const value of quota.customWindows) {
-      const window = recordFromUnknown(value);
-      const percent = finiteNumber(window?.percent);
-      if (!window || typeof window.label !== "string" || !window.label.trim() || percent === null || percent < 0) {
-        return "unknown";
-      }
-      if (Object.hasOwn(window, "resetAt") && finiteNumber(window.resetAt) === null) return "unknown";
-      hasEvidence = true;
-      if (percent >= 100) exhausted = true;
-    }
-  }
-
-  if (Object.hasOwn(quota, "creditsUsd")) {
-    const credits = recordFromUnknown(quota.creditsUsd);
-    if (!credits) return "unknown";
-    const used = finiteNumber(credits.used);
-    const limit = finiteNumber(credits.limit);
-    const remaining = finiteNumber(credits.remaining);
-    const percent = finiteNumber(credits.percent);
-    if (used === null || used < 0 || limit === null || limit < 0 || remaining === null || percent === null || percent < 0) {
-      return "unknown";
-    }
-    if (credits.unlimited !== undefined && typeof credits.unlimited !== "boolean") return "unknown";
-    if (Object.hasOwn(credits, "expiresAt") && finiteNumber(credits.expiresAt) === null) return "unknown";
-    hasEvidence = true;
-    if (credits.unlimited !== true && remaining <= 0) exhausted = true;
-  }
-
-  if (!hasEvidence) return "unknown";
-  return exhausted ? "exhausted" : "available";
+  return next;
 }
 
 /** Fail-unknown parser for the live `/api/provider-quotas` report array. */
@@ -485,6 +403,7 @@ export function draftEquals(a: ComboItem, b: ComboItem): boolean {
     || a.stickyLimit !== b.stickyLimit
     || a.defaultEffort !== b.defaultEffort
     || (a.imageInput ?? "auto") !== (b.imageInput ?? "auto")
+    || (a.reasoningEffortMode ?? "strict") !== (b.reasoningEffortMode ?? "strict")
   ) return false;
   if (a.targets.length !== b.targets.length) return false;
   return a.targets.every((t, i) => {
@@ -502,6 +421,7 @@ export function toPutBody(item: ComboItem, options: { renameFrom?: string } = {}
     stickyLimit?: number;
     defaultEffort: ComboEffort | null;
     imageInput?: "disabled";
+    reasoningEffortMode?: "adaptive";
     alias?: string;
     nativeAlias?: true;
     displayName?: string;
@@ -518,6 +438,7 @@ export function toPutBody(item: ComboItem, options: { renameFrom?: string } = {}
       strategy: item.strategy,
       defaultEffort: item.defaultEffort,
       ...(item.imageInput === "disabled" ? { imageInput: "disabled" as const } : {}),
+      ...(item.reasoningEffortMode === "adaptive" ? { reasoningEffortMode: "adaptive" as const } : {}),
       ...(item.strategy === "round-robin" ? { stickyLimit: item.stickyLimit } : {}),
       ...(item.alias && item.alias.trim() ? { alias: item.alias.trim() } : {}),
       ...(item.nativeAlias ? { nativeAlias: true } : {}),
@@ -627,6 +548,7 @@ export function emptyDraft(id = ""): ComboItem {
     stickyLimit: 1,
     defaultEffort: null,
     imageInput: "auto",
+    reasoningEffortMode: "strict",
     targets: [newComboTarget()],
   };
 }

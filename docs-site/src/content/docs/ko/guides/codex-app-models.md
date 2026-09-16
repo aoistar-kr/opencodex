@@ -97,8 +97,7 @@ visibility = "list"
 
 ## 현재 안정 모델 범위
 
-네이티브 폴백 목록에는 `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`,
-`gpt-5.3-codex-spark`, 그리고 GPT-5.6 Sol/Terra/Luna가 들어 있습니다. GPT-5.5/5.4 계열은 설치된
+네이티브 폴백 목록에는 `gpt-5.5`와 GPT-5.6 Sol/Terra/Luna가 들어 있습니다. GPT-5.5 계열은 설치된
 Codex 카탈로그의 더 풍부한 실시간 항목을 보존하고, 빠진 항목만 합성합니다. 번들 업스트림 스냅샷은
 GPT-5.6에만 사용합니다. 오래된 템플릿으로 근사하지 않고 모델별 실제 식별 정보와 메타데이터를
 제공하기 위해서입니다.
@@ -222,7 +221,7 @@ model = "anthropic/claude-sonnet-5"
 ocx access test anthropic/claude-sonnet-5 --protocol responses
 ```
 
-두 경로 모두 **요청이 프록시에 도달한 뒤에는** 정상 라우팅되고, 이건 테스트로 덮여 있습니다. 확인되지 않은 부분은 리저브 모드에서 앱이 설정한 모델을 실제로 보내는지입니다. 클라이언트가 보내기 전에 바꾸거나 거부하면 프록시 설정으로는 바꿀 수 없습니다. 명시적 지정은 확정된 우회책이 아니라 시도해 볼 방법으로 보세요.
+두 경로 모두 **요청이 프록시에 도달한 뒤에는** 정상 라우팅되고, 이건 테스트로 덮여 있습니다. 다만 Codex 데스크톱 앱은 리저브 모드에서 설정한 모델을 보내지 않습니다. 앱이 자체 `wham/usage` 폴링(`luna_reserve` 업셀과 허용 상태의 `gpt-reserve` 추가 한도)으로 리저브를 판정하고, 요청이 나가기 전에 모델 설정을 `gpt-reserve`로 강제하기 때문에 `config.toml` 경로는 앱 안에서 덮어써집니다. 윈도우가 리셋될 때까지는 `ocx access test`, 프록시를 통한 Claude Code(`ocx claude`), 직접 `/v1` 클라이언트를 쓰세요. [Codex 리저브 모드에서의 라우팅 모델](/guides/codex-integration/#routed-models-during-codex-reserve-mode)도 참고하세요.
 
 
 picker에 오래된 항목이 계속 보이면 카탈로그를 새로 쓰고 대상 Codex 서피스를 다시 시작합니다:

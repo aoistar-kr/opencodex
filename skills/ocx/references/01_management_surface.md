@@ -28,6 +28,36 @@ These answer in the CLI head and never reach the proxy, so they work with nothin
 
 Safe to run at any time; none of these change state.
 
+### `ocx remote-workspace status`
+
+Read local executor enrollment and available capabilities without printing credentials.
+
+Drives no management route.
+
+| Flag | Value | Meaning |
+|---|---|---|
+| `--json` | boolean | Emit the public local executor status. |
+
+JSON mode: `payload`.
+
+- Executor-local operation; Hub consent and session control stay in the dashboard.
+
+### `ocx models price`
+
+Read the saved manual price for an exact provider/model selector.
+
+| Method | Route |
+|---|---|
+| GET | `/api/providers/{provider}/model-costs` |
+
+| Flag | Value | Meaning |
+|---|---|---|
+| `--json` | boolean | Emit provider, modelId, and cost (null for automatic pricing). |
+
+JSON mode: `envelope`.
+
+- The provider must be configured; everything after the first slash is the exact upstream model ID.
+
 ### `ocx status`
 
 Proxy status, injection state, and version skew between this CLI and the running proxy.
@@ -67,10 +97,43 @@ Drives no management route.
 | Flag | Value | Meaning |
 |---|---|---|
 | `--json` | boolean | Emit the provider list as JSON. |
+| `--jsonl` | boolean | Emit one configured provider per JSON line. |
 
 JSON mode: `envelope`.
 
 - Reads local config; drives no management API route.
+
+### `ocx provider resets`
+
+Recently detected quota resets and whether reset notifications are enabled.
+
+| Method | Route |
+|---|---|
+| GET | `/api/quota-resets` |
+
+| Flag | Value | Meaning |
+|---|---|---|
+| `--json` | boolean | Emit reset events as JSON. |
+| `--limit` | number | Limit returned events; defaults to 20, capped at 100. |
+
+JSON mode: `payload`.
+
+### `ocx account history`
+
+Cached quota observations for one stored Codex pool account.
+
+| Method | Route |
+|---|---|
+| GET | `/api/codex-auth/quota/history` |
+
+| Flag | Value | Meaning |
+|---|---|---|
+| `--json` | boolean | Emit the bounded observation history. |
+| `--limit` | number | Return the newest 1 to 200 observations. |
+
+JSON mode: `payload`.
+
+- Use account history openai <pool-account-id>. Reads cached observations only; no refresh or warmup. Native main is not included.
 
 ### `ocx account list`
 
@@ -100,6 +163,8 @@ Token and estimated-cost report over a time range.
 | Flag | Value | Meaning |
 |---|---|---|
 | `--range` | string | today | 1d | 7d | 30d | all |
+| `--since` | string | Inclusive start: epoch milliseconds or full ISO datetime with timezone; requires --until and overrides --range. |
+| `--until` | string | Inclusive end: epoch milliseconds or full ISO datetime with timezone; requires --since. |
 | `--provider` | string | Restrict to one provider. |
 | `--model` | string | Restrict to one model id. |
 | `--json` | boolean | Emit the usage report as JSON. |
@@ -111,7 +176,7 @@ JSON mode: `payload`.
 
 ### `ocx logs`
 
-Recent request log rows, filterable by provider, model, conversation, and status.
+Recent request log rows, filterable by provider, model, conversation, account, and status.
 
 | Method | Route |
 |---|---|
@@ -122,9 +187,10 @@ Recent request log rows, filterable by provider, model, conversation, and status
 | `--provider` | string | Restrict to one provider, matching failover attempts too. |
 | `--model` | string | Restrict to one model id, matching failover attempts too. |
 | `--conversation` | string | Restrict to one conversation id (`--conversationId` is accepted too). |
+| `--account` | string | Restrict to one account log label (`main`, `p<hex6>`, `o<hex6>`), matching failover attempts too. |
 | `--status` | string | An exact code (429) or a class (5xx). |
 | `--limit` | number | Row cap; defaults to 200. |
-| `--follow` | boolean | Stream new rows as JSONL; implies --jsonl. |
+| `--follow` | boolean | Poll for new rows; add --jsonl to emit JSONL. |
 | `--json` | boolean | Emit the server payload as JSON. |
 | `--jsonl` | boolean | Emit one row per line. |
 
@@ -132,6 +198,7 @@ JSON mode: `payload`.
 
 - `--provider` and `--model` both match a failover attempt, so a request is findable by what actually served it, not only by what was asked for.
 - Rows print `conv=<id>` when the entry carries one, so a conversation filter can be told apart from an empty result.
+- Rows print `acct=<label>` when the account is known, so an `--account` filter can be told apart from an empty result.
 - `--follow` deduplicates by row id and cannot be combined with `--json`.
 
 ### `ocx storage report`
@@ -337,6 +404,179 @@ JSON mode: `payload`.
 
 Each of these writes. Check the flags column before running one unattended.
 
+### `ocx remote-workspace pair`
+
+Enroll this executor with one Hub using a one-time code from stdin and locally approved roots.
+
+Drives no management route.
+
+| Flag | Value | Meaning |
+|---|---|---|
+| `--json` | boolean | Emit the public local executor status. |
+| `--pairing-code-stdin` | boolean | Read the one-time pairing code from stdin. |
+| `--root` | string | Approve an absolute workspace directory; repeatable. |
+| `--toolchain-root` | string | Approve a read-only toolchain directory; repeatable. |
+| `--executor-helper` | string | Select a reviewed native helper file. |
+| `--name` | string | Name this executor. |
+
+JSON mode: `payload`.
+
+- Executor-local operation; Hub consent and session control stay in the dashboard.
+
+### `ocx remote-workspace agent`
+
+Keep the paired executor connected to its Hub.
+
+Drives no management route.
+
+JSON mode: `none`.
+
+- Executor-local operation; Hub consent and session control stay in the dashboard.
+
+### `ocx models set-price`
+
+Save four manual USD-per-1M-token rates, or restore automatic pricing for one model.
+
+| Method | Route |
+|---|---|
+| PUT | `/api/providers/{provider}/model-costs` |
+
+| Flag | Value | Meaning |
+|---|---|---|
+| `--input` | number | Input rate; required unless --auto is used. |
+| `--output` | number | Output rate; required unless --auto is used. |
+| `--cache-read` | number | Cache read rate; defaults to 0. |
+| `--cache-write` | number | Cache write rate; defaults to 0. |
+| `--auto` | boolean | Remove this model's override; cannot be combined with rates. |
+| `--json` | boolean | Emit the saved price or reset result as JSON. |
+
+JSON mode: `payload`.
+
+- Uses the exact upstream model ID after the first slash. Omitted cache rates default to zero; sibling model prices are preserved.
+
+### `ocx hub invite`
+
+Mint a single-use pairing code on a hub and print the exact `ocx connect` line for one more machine.
+
+Drives no management route.
+
+| Flag | Value | Meaning |
+|---|---|---|
+| `--json` | boolean | Emit code, expiresAt, dataUrl, managementUrl, and command. |
+| `--data-url` | string | Advertise this data origin instead of hub.dataPublicOrigin or the bind address. |
+| `--management-url` | string | Confirm the management origin; it must equal hub.managementPublicOrigin. |
+| `--clients` | string | Pre-select codex and/or claude in the printed connect command. |
+
+JSON mode: `envelope`.
+
+- Hub only: refuses when runtimeRole is not hub, and requires a running attested proxy.
+- The code is secret, single-use and short-lived; it is bound to hub.managementPublicOrigin and to the connecting machine's loopback browser origin.
+- The bound browser origin is always printed; when it is not http://localhost:10100 the warning names the port the connecting machine must use.
+- Refuses when the advertised data origin would be loopback (a loopback or wildcard bind with no hub.dataPublicOrigin and no --data-url) rather than printing a line that dials the other machine itself.
+- Prints no data-plane token. Remote machines receive their own revocable per-client key from the exchange.
+- Mints through the attested local pairing-grant route, the same one ocx gui pair uses; no admin token is read.
+
+### `ocx connect rotate`
+
+Rotate the connected client's data key against the hub, with commit and abort.
+
+| Method | Route |
+|---|---|
+| POST | `/api/keys/rotate` |
+| POST | `/api/keys/rotate/commit` |
+| DELETE | `/api/keys/rotate` |
+
+| Flag | Value | Meaning |
+|---|---|---|
+| `--pairing-code-stdin` | boolean | Read a one-time pairing code from stdin as the rotation authority. |
+| `--admin-token-stdin` | boolean | Read the hub admin token from stdin as the rotation authority. |
+| `--json` | boolean | Emit the rotation result as JSON. |
+
+JSON mode: `payload`.
+
+- Requires transient authority on stdin; the credential is never persisted or echoed.
+- A rotation left pending by a crash is resumed here — startup and status stop rather than guess which key generation is live.
+
+### `ocx provider keychain`
+
+Move a provider's API key into the OS keychain, restore it, or report where it lives.
+
+| Method | Route |
+|---|---|
+| GET | `/api/providers/keychain` |
+| POST | `/api/providers/keychain` |
+
+| Flag | Value | Meaning |
+|---|---|---|
+| `--json` | boolean | Emit the keychain status or result as JSON. |
+
+JSON mode: `payload`.
+
+- `store` verifies every keychain write by read-back before config.json is rewritten with keychain: references; an unavailable keychain refuses with 503 and leaves the file untouched.
+- Headless services usually have no unlocked keychain session; prefer ${ENV_VAR} references there.
+
+### `ocx account main reauth`
+
+Reauthenticate the native main Codex login with a device code (#3898); headless hubs need no Codex App or keyring.
+
+| Method | Route |
+|---|---|
+| POST | `/api/codex-auth/main/reauth-device` |
+| GET | `/api/codex-auth/main/reauth-device` |
+| DELETE | `/api/codex-auth/main/reauth-device` |
+
+| Flag | Value | Meaning |
+|---|---|---|
+| `--device` | boolean | Run the device-code flow (the only reauth mode). |
+| `--no-wait` | boolean | Print the flow handle and code without waiting for completion. |
+| `--flow` | string | Flow id for status and cancel. |
+| `--json` | boolean | Emit the flow status as JSON. |
+
+JSON mode: `payload`.
+
+- Same-identity reauth only: the device login must complete for the ChatGPT account that already holds the native main slot, and the commit is fenced by the exclusive claim plus a path/hash/inode snapshot.
+- /api/codex-auth/login stays pool-only and keeps rejecting __main__; this namespace is the only device-reauth surface for the native main slot.
+- Payloads carry only flowId, status, the verification URL, the device code, and a closed set of failure codes -- never tokens, emails, or raw account ids.
+
+### `ocx account refresh`
+
+Refresh account quotas without model validation; pending Codex accounts require dashboard consent.
+
+| Method | Route |
+|---|---|
+| POST | `/api/codex-auth/accounts/refresh` |
+| GET | `/api/provider-quotas` |
+
+| Flag | Value | Meaning |
+|---|---|---|
+| `--json` | boolean | Emit the refresh result as JSON. |
+
+JSON mode: `payload`.
+
+- CLI/admin-token refreshes only observe usage. After quota recovery, a human must click Refresh quotas in the dashboard to authorize model validation. Do not mint a GUI session to work around this consent boundary.
+
+### `ocx account grok-reset-coupons`
+
+Inspect or redeem Grok billing reset coupons; redemption is journaled and idempotent.
+
+| Method | Route |
+|---|---|
+| GET | `/api/grok/reset-coupons` |
+| POST | `/api/grok/reset-coupons/consume` |
+
+| Flag | Value | Meaning |
+|---|---|---|
+| `--consume` | boolean | Redeem one reset coupon; requires --yes. |
+| `--yes` | boolean | Explicit confirmation required by --consume. |
+| `--token-id` | string | Redeem a specific reset token instead of the default selection. |
+| `--operation-id` | string | UUIDv4 making a redemption idempotent: retries replay the journaled outcome. |
+| `--json` | boolean | Emit the coupon list or redemption result as JSON. |
+
+JSON mode: `payload`.
+
+- Without --consume this is a read: remaining coupons and their validity windows.
+- The operation is journaled before the upstream call, so retrying the same --operation-id replays the recorded outcome instead of spending a second coupon.
+
 ### `ocx account pause`
 
 Stop routing new requests to one account in the Codex pool.
@@ -390,10 +630,9 @@ Show or set how an account pool picks the next account.
 
 | Method | Route |
 |---|---|
-| GET | `/api/codex-auth/active` |
-| PUT | `/api/codex-auth/pool-strategy` |
-| GET | `/api/oauth/accounts/pool` |
-| PUT | `/api/oauth/accounts/pool` |
+| GET | `/api/pool/settings` |
+| PUT | `/api/pool/settings` |
+| PATCH | `/api/pool/settings` |
 
 | Flag | Value | Meaning |
 |---|---|---|
@@ -404,7 +643,7 @@ JSON mode: `envelope`.
 - A bare invocation reads and never writes.
 - The APPLIED value is echoed, not the requested one, so a server-side normalization stays visible.
 - Values are not re-validated in the CLI: the server owns the strategy names and the 1-100 sticky bound.
-- `anthropic` is the only OAuth pool with this setting; other OAuth providers are refused without a round-trip.
+- One route answers for every pool kind and declares which fields that kind honours in `supported`, so an unsupported field is a stated null rather than an absence. `anthropic` alone carries `quotaWindow`. Generic-provider settings steer selection only while `pool.kernel` is on. The legacy per-pool paths still work and are unchanged.
 
 ### `ocx account sticky`
 
@@ -412,10 +651,9 @@ Show or set how many consecutive requests stay on one account.
 
 | Method | Route |
 |---|---|
-| GET | `/api/codex-auth/active` |
-| PUT | `/api/codex-auth/pool-strategy` |
-| GET | `/api/oauth/accounts/pool` |
-| PUT | `/api/oauth/accounts/pool` |
+| GET | `/api/pool/settings` |
+| PUT | `/api/pool/settings` |
+| PATCH | `/api/pool/settings` |
 
 | Flag | Value | Meaning |
 |---|---|---|
@@ -424,6 +662,27 @@ Show or set how many consecutive requests stay on one account.
 JSON mode: `envelope`.
 
 - Only meaningful under the sticky-capable strategies; the pool strategy is the other half of this setting.
+
+### `ocx account auto-switch`
+
+Show or set the usage percentage at which a pool moves to another account.
+
+| Method | Route |
+|---|---|
+| GET | `/api/codex-auth/active` |
+| PUT | `/api/codex-auth/auto-switch` |
+| GET | `/api/oauth/accounts/pool` |
+| PUT | `/api/oauth/accounts/pool` |
+
+| Flag | Value | Meaning |
+|---|---|---|
+| `--json` | boolean | Emit the stored threshold and whether it is applied. |
+
+JSON mode: `envelope`.
+
+- A bare invocation reads and never writes.
+- `on` stores 80%, `off` stores 0%, and `threshold <n>` accepts 0-100.
+- For a generic OAuth pool, `inert: true` means the threshold is stored but not applied, `inert: false` means the pool is applying it, and an absent `inert` is an unknown capability.
 
 ### `ocx storage cleanup`
 
@@ -505,11 +764,12 @@ Restart the Codex app-server.
 JSON mode: `payload`.
 
 - `sync --restart-codex` is not a substitute: it restarts only as a side effect after a catalog or cache write, so it cannot restart a healthy install on request.
+- Restarts the Codex desktop app as well as the app-servers, through the same module the CLI uses. When the proxy itself runs inside the Codex app it refuses instead, because restarting the app would kill the request.
 - --yes is mandatory because this interrupts a running editor session, which must never happen because an agent guessed a subcommand.
 
 ### `ocx integration native`
 
-Show or toggle the native Claude, Claude Desktop, Codex, and Grok integrations.
+Show or toggle the native Claude, Claude Desktop, Codex, and Grok integrations, and read the Cursor status (which builds are installed, gateway values, last request seen).
 
 | Method | Route |
 |---|---|
@@ -518,6 +778,7 @@ Show or toggle the native Claude, Claude Desktop, Codex, and Grok integrations.
 | PUT | `/api/native-integrations/claude-desktop` |
 | PUT | `/api/native-integrations/codex` |
 | PUT | `/api/native-integrations/grok` |
+| GET | `/api/native-integrations/cursor` |
 
 | Flag | Value | Meaning |
 |---|---|---|
@@ -527,6 +788,52 @@ JSON mode: `payload`.
 
 - The list renders per-client state, installed, and desired columns; a blocked disable is named rather than left silent.
 - Each client has its own route because a toggle rewrites that client's own config file.
+
+### `ocx integration client`
+
+Inspect and toggle Aside profile catalogs, read their history, and restore a selected profile operation.
+
+| Method | Route |
+|---|---|
+| GET | `/api/client-integrations/aside/profiles` |
+| PUT | `/api/client-integrations/aside/profiles` |
+| GET | `/api/client-integrations/aside/profiles/{profileId}` |
+| PUT | `/api/client-integrations/aside/profiles/{profileId}` |
+| GET | `/api/client-integrations/aside/profiles/journal` |
+| GET | `/api/client-integrations/aside/profiles/{profileId}/journal` |
+| POST | `/api/client-integrations/aside/profiles/{profileId}/restore` |
+
+| Flag | Value | Meaning |
+|---|---|---|
+| `--client` | string | Select the file integration; use aside for profile controls. |
+| `--profile` | number | Select one registered Aside account; omitted toggles affect all profiles. |
+| `--op` | string | Operation ID for restore. |
+| `--confirm-drift` | boolean | Explicitly allow restore to replace subsequent edits. |
+| `--overwrite-conflict` | boolean | Explicitly allow enable to replace a conflicting provider block. |
+| `--json` | boolean | Emit the profile state, history, or mutation result as JSON. |
+
+JSON mode: `payload`.
+
+- Use status/show/list, history/journal, enable/disable, or restore after integration client.
+- These declarations cover the dedicated Aside profile paths; existing generic client routes retain their separate parity inventory.
+
+### `ocx sync`
+
+Synchronize client catalogs, including Aside profiles through the running server's mutation owner.
+
+| Method | Route |
+|---|---|
+| POST | `/api/client-integrations/aside/sync` |
+
+| Flag | Value | Meaning |
+|---|---|---|
+| `--restart-codex` | boolean | Restart the Codex app-servers and fully quit and relaunch the Codex desktop app after a catalog or cache write, on macOS, Linux and Windows. |
+| `--restart-app-server-only` | boolean | Restart only the Codex app-servers and leave the desktop app running; wins over --restart-codex when both are given. |
+| `--restart-desktop-app` | boolean | Deprecated alias of --restart-codex. |
+
+JSON mode: `none`.
+
+- The Aside refresh uses the live server; other catalog synchronization also performs local work.
 
 ### `ocx agent request-user-input`
 
@@ -547,6 +854,6 @@ JSON mode: `payload`.
 
 ## Counts
 
-- declared capabilities: 30
-- of those, state-changing: 11
+- declared capabilities: 46
+- of those, state-changing: 23
 - head-resolved invocations: 2
