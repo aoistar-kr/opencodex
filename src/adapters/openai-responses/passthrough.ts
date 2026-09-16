@@ -114,11 +114,14 @@ function stripInputImagesDeep(value: unknown): unknown {
  * be applied here. Images go too: a summary needs no pixels, and a text-only
  * gateway would reject them.
  */
-function buildRoutedCompactionBody(body: unknown): unknown {
+function buildRoutedCompactionBody(body: unknown, preserveCodexCompactionTrigger = false): unknown {
   if (!isPlainObject(body)) return body;
   // `text` goes with the tool fields: the summary must be prose, not schema-constrained JSON.
   const { tools: _tools, tool_choice: _toolChoice, parallel_tool_calls: _parallel, text: _text, ...rest } = body;
   const input = Array.isArray(body.input) ? body.input : [];
+  const compactionTrigger = preserveCodexCompactionTrigger
+    ? input.find(item => isPlainObject(item) && item.type === "compaction_trigger")
+    : undefined;
   const kept = input.filter(item => !isPlainObject(item)
     // `additional_tools` is how Codex Desktop's responses-lite shape carries tools;
     // leaving it in would break the no-tools invariant even with `tools` removed.
@@ -128,6 +131,7 @@ function buildRoutedCompactionBody(body: unknown): unknown {
     input: [
       ...(stripInputImagesDeep(kept) as unknown[]),
       { type: "message", role: "user", content: [{ type: "input_text", text: COMPACT_PROMPT }] },
+      ...(compactionTrigger ? [compactionTrigger] : []),
     ],
   };
 }
@@ -379,7 +383,7 @@ export function createResponsesPassthroughAdapter(provider: OcxProviderConfig): 
       // sanitizers below can still run after it.
       outBody = normalizeResponsesCodeMode(outBody, parsed, provider);
       if (parsed._compactionRequest === true && !isCanonicalOpenAiForwardProvider(provider)) {
-        outBody = buildRoutedCompactionBody(outBody);
+        outBody = buildRoutedCompactionBody(outBody, isCodexPrivateMetadataLoopback(provider));
       }
       // Run after routed compaction so nested input_image parts are replaced before a malformed
       // tool output is flattened to text and can no longer be inspected structurally.

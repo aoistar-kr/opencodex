@@ -1319,6 +1319,43 @@ describe("routed compaction lowering order", () => {
     ]);
   });
 
+  test("keeps compaction_trigger final for an explicitly trusted Codex loopback bridge", () => {
+    const adapter = createResponsesPassthroughAdapter({
+      adapter: "openai-responses",
+      baseUrl: "http://127.0.0.1:17841/v1",
+      authMode: "key",
+      apiKey: "test-key",
+      allowPrivateNetwork: true,
+      preserveCodexPrivateMetadata: true,
+      supportsResponsesCustomTools: false,
+    });
+    const built = adapter.buildRequest({
+      modelId: "routed-model",
+      context: { messages: [] },
+      stream: false,
+      options: {},
+      _rawBody: rawBody(true),
+      _compactionRequest: true,
+    }, { headers: new Headers() });
+    const body = JSON.parse(built.body) as Record<string, unknown> & {
+      input: Array<Record<string, unknown>>;
+    };
+
+    expect(body.input.at(-1)).toEqual({ type: "compaction_trigger" });
+    expect(body.input.at(-2)).toEqual({
+      type: "message",
+      role: "user",
+      content: [{
+        type: "input_text",
+        text: expect.stringContaining("CONTEXT CHECKPOINT COMPACTION"),
+      }],
+    });
+    expect(body).not.toHaveProperty("tools");
+    expect(body).not.toHaveProperty("tool_choice");
+    expect(body).not.toHaveProperty("parallel_tool_calls");
+    expect(body.input.some(item => item.type === "additional_tools")).toBe(false);
+  });
+
   test("lifts the non-compaction private tool catalog without changing replay order", () => {
     const built = build(false);
     expect(built.body).toBe(JSON.stringify({
