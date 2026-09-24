@@ -12,6 +12,9 @@ Cursor's direct adapter does not enter the OpenAI Chat serializer's
 
 Shared parsing and streaming follow the [request-copy](../transports/byte-accounting.md#request-copy-accounting) and [stream-buffer accounting](../transports/byte-accounting.md#stream-buffer-accounting) contracts.
 
+The ChatGPT-only `access_programs` sanitizer belongs to the `openai-responses` passthrough boundary
+and does not run on Cursor's direct transport; Cursor request and continuation semantics are unchanged.
+
 ## Cursor Native Exec
 
 Cursor's experimental live transport can receive server-driven local read/write/delete/ls/grep,

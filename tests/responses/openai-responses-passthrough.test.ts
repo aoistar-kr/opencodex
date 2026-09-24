@@ -603,9 +603,10 @@ test("noncanonical pool-required providers use only their configured static cred
   expect(request.headers.session_id).toBeUndefined();
 });
 
-test("noncanonical Responses destinations strip Codex-private item metadata", () => {
+test("noncanonical Responses destinations strip ChatGPT-private request metadata", () => {
   const rawBody = {
     model: "openai/gpt-5.6-sol",
+    access_programs: { cyber: "daybreak_blue" },
     input: [
       {
         type: "message",
@@ -643,12 +644,14 @@ test("noncanonical Responses destinations strip Codex-private item metadata", ()
       options: {},
       _rawBody: rawBody,
     }, { headers: new Headers() });
-    const body = JSON.parse(request.body) as { input: Record<string, unknown>[] };
+    const body = JSON.parse(request.body) as { access_programs?: unknown; input: Record<string, unknown>[] };
 
+    expect(body.access_programs).toBeUndefined();
     expect(body.input.every(item => !("internal_chat_message_metadata_passthrough" in item)))
       .toBe(true);
   }
 
+  expect(rawBody.access_programs).toEqual({ cyber: "daybreak_blue" });
   expect(rawBody.input.every(item => "internal_chat_message_metadata_passthrough" in item))
     .toBe(true);
 });
@@ -748,6 +751,7 @@ test("canonical ChatGPT forward preserves Codex-private item metadata", () => {
     options: {},
     _rawBody: {
       model: "gpt-5.6-sol",
+      access_programs: { cyber: "daybreak_blue" },
       input: [{
         type: "message",
         role: "user",
@@ -757,9 +761,11 @@ test("canonical ChatGPT forward preserves Codex-private item metadata", () => {
     },
   }, { headers: new Headers({ authorization: "Bearer token" }) });
   const body = JSON.parse(request.body) as {
+    access_programs?: unknown;
     input: { internal_chat_message_metadata_passthrough?: unknown }[];
   };
 
+  expect(body.access_programs).toEqual({ cyber: "daybreak_blue" });
   expect(body.input[0].internal_chat_message_metadata_passthrough)
     .toEqual({ turn_id: "turn-1" });
 });

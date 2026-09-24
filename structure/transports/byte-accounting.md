@@ -7,6 +7,9 @@ How opencodex measures request and stream bytes without allocating copies solely
 them. These contracts are shared by request parsing, SSE rewriting, the provider adapters and
 the translator budget, which is why so many documents link here rather than restating them.
 
+The noncanonical Responses removal of ChatGPT-only top-level `access_programs` is copy-on-write;
+the final serialized request remains the single outbound body observation owned by the Responses adapter.
+
 ## Request-copy accounting
 
 `src/server/request-decompress.ts` observes the UTF-8 sizes of decoded text and reserialized JSON

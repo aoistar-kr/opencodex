@@ -1,0 +1,6871 @@
+[
+  {
+    "id": "@bitkyc08/opencodex@2.56.0",
+    "name": "@bitkyc08/opencodex",
+    "version": "2.56.0",
+    "size": 11017127,
+    "unpackedSize": 25819274,
+    "shasum": "fcfcdcf8b15fc8e191a323a65cff4b302ccb61ec",
+    "integrity": "sha512-VVx2GUF9cL0Cs9YwOHMdRiQF+sLULkaVXVWDvsC26TCAIXye13rv5r5f3W0prKgcNKlvrROshZ5xVEg5u+FtXA==",
+    "filename": "bitkyc08-opencodex-2.56.0.tgz",
+    "files": [
+      {
+        "path": "AGENTS_INSTALL.md",
+        "size": 5876,
+        "mode": 420
+      },
+      {
+        "path": "LICENSE",
+        "size": 1079,
+        "mode": 420
+      },
+      {
+        "path": "README.md",
+        "size": 20141,
+        "mode": 420
+      },
+      {
+        "path": "SPONSORS.md",
+        "size": 5123,
+        "mode": 420
+      },
+      {
+        "path": "assets/architecture.png",
+        "size": 1942300,
+        "mode": 420
+      },
+      {
+        "path": "assets/banner.png",
+        "size": 1400172,
+        "mode": 420
+      },
+      {
+        "path": "assets/claude-code-models.gif",
+        "size": 1789428,
+        "mode": 420
+      },
+      {
+        "path": "assets/codex-app-picker.png",
+        "size": 141007,
+        "mode": 420
+      },
+      {
+        "path": "assets/sponsors/orcarouter.png",
+        "size": 51347,
+        "mode": 420
+      },
+      {
+        "path": "assets/sponsors/packycode.png",
+        "size": 13337,
+        "mode": 420
+      },
+      {
+        "path": "bin/ocx.mjs",
+        "size": 40348,
+        "mode": 420
+      },
+      {
+        "path": "bin/package-main.mjs",
+        "size": 314,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/assets/index-CtQuRLA5.js",
+        "size": 2529151,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/assets/index-uvENYLin.css",
+        "size": 195434,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/favicon.png",
+        "size": 16089,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/icons.svg",
+        "size": 5031,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/index.html",
+        "size": 961,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/logo.png",
+        "size": 117483,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/alibaba-color.svg",
+        "size": 562,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/antigravity-color.svg",
+        "size": 1730,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/aside.svg",
+        "size": 3043,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/baseten.svg",
+        "size": 1338,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/bizrouter.svg",
+        "size": 3357,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/cerebras.svg",
+        "size": 1502,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/claude-color.svg",
+        "size": 1671,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/cline-color.svg",
+        "size": 2117,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/cloudflare-ai-gateway-color.svg",
+        "size": 1193,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/commandcode-color.svg",
+        "size": 1677,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/copilot-color.svg",
+        "size": 1752,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/cursor-color.svg",
+        "size": 2849,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/deepinfra.svg",
+        "size": 5111,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/deepseek-color.svg",
+        "size": 2101,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/deepseek-harness.svg",
+        "size": 3546,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/digitalocean.svg",
+        "size": 876,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/discord.svg",
+        "size": 1394,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/featherless.svg",
+        "size": 1272,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/firepass-color.svg",
+        "size": 567,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/fireworks-color.svg",
+        "size": 567,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/gajae-code.svg",
+        "size": 31591,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/gemini-color.svg",
+        "size": 2811,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/github-copilot-color.svg",
+        "size": 1759,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/gitlab-duo-color.svg",
+        "size": 588,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/grok.svg",
+        "size": 689,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/groq-color.svg",
+        "size": 538,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/hermes-agent.svg",
+        "size": 15578,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/huggingface-color.svg",
+        "size": 3042,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/hyperbolic.svg",
+        "size": 1549,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/kilo.svg",
+        "size": 686,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/kimi-color.svg",
+        "size": 667,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/kiro-color.svg",
+        "size": 1632,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/litellm.svg",
+        "size": 6438,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/lm-studio-color.svg",
+        "size": 550,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/minimax.svg",
+        "size": 1102,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/mistral-color.svg",
+        "size": 305,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/moonshot-color.svg",
+        "size": 667,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/nanogpt.svg",
+        "size": 3691,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/nebius.svg",
+        "size": 939,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/neuralwatt.svg",
+        "size": 6064,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/nous.svg",
+        "size": 10640,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/novita.svg",
+        "size": 1932,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/nvidia-color.svg",
+        "size": 896,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/oh-my-pi.svg",
+        "size": 434,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/ollama-color.svg",
+        "size": 4784,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/openai.svg",
+        "size": 1658,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/openclaw.svg",
+        "size": 3271,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/opencode.svg",
+        "size": 284,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/openrouter-color.svg",
+        "size": 699,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/orcarouter.svg",
+        "size": 13494,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/parallel.svg",
+        "size": 3180,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/pi.svg",
+        "size": 496,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/prime-agent.svg",
+        "size": 4105,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/qianfan-color.svg",
+        "size": 1406,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/qwen-portal-color.svg",
+        "size": 820,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/sambanova.svg",
+        "size": 20998,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/scaleway.svg",
+        "size": 1033,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/siliconflow.svg",
+        "size": 854,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/synthetic.svg",
+        "size": 8227,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/telegram.svg",
+        "size": 762,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/together.svg",
+        "size": 1044,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/umans.svg",
+        "size": 2718,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/venice.svg",
+        "size": 12651,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/vercel-ai-gateway-color.svg",
+        "size": 147,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/vllm-color.svg",
+        "size": 174,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/vultr.svg",
+        "size": 1276,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/xiaomi-color.svg",
+        "size": 918,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/zai.svg",
+        "size": 10941,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/zcode.svg",
+        "size": 11037,
+        "mode": 420
+      },
+      {
+        "path": "gui/dist/provider-icons/zenmux.svg",
+        "size": 1768,
+        "mode": 420
+      },
+      {
+        "path": "native/remote-workspace-helper/Cargo.lock",
+        "size": 3336,
+        "mode": 420
+      },
+      {
+        "path": "native/remote-workspace-helper/Cargo.toml",
+        "size": 549,
+        "mode": 420
+      },
+      {
+        "path": "native/remote-workspace-helper/src/main.rs",
+        "size": 1664,
+        "mode": 420
+      },
+      {
+        "path": "native/remote-workspace-helper/src/protocol.rs",
+        "size": 7908,
+        "mode": 420
+      },
+      {
+        "path": "native/remote-workspace-helper/src/sandbox/macos.rs",
+        "size": 1029,
+        "mode": 420
+      },
+      {
+        "path": "native/remote-workspace-helper/src/sandbox/mod.rs",
+        "size": 2204,
+        "mode": 420
+      },
+      {
+        "path": "native/remote-workspace-helper/src/sandbox/windows.rs",
+        "size": 692,
+        "mode": 420
+      },
+      {
+        "path": "package.json",
+        "size": 4713,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/agentrouter.ts",
+        "size": 2223,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/anthropic-image-codec.ts",
+        "size": 13938,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/anthropic-image-guard.ts",
+        "size": 11523,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/anthropic-image-normalize.ts",
+        "size": 13918,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/anthropic-output-schema.ts",
+        "size": 3993,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/anthropic.ts",
+        "size": 70245,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/azure.ts",
+        "size": 1453,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/base.ts",
+        "size": 8668,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/client-fingerprint.ts",
+        "size": 3533,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cline-pass-deepseek-v4-tool-replay.ts",
+        "size": 2290,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/codebuddy/adapter.ts",
+        "size": 3723,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/codebuddy/profiles.ts",
+        "size": 2406,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/coding-agent/profile.ts",
+        "size": 4063,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/coding-agent/protocol.ts",
+        "size": 20878,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/coding-agent/turn.ts",
+        "size": 13840,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/command-code.ts",
+        "size": 32864,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor.ts",
+        "size": 27685,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/arg-codec.ts",
+        "size": 1217,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/arg-normalize.ts",
+        "size": 3630,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/call-id.ts",
+        "size": 5035,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/catalog.ts",
+        "size": 27132,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/checkpoint-store.ts",
+        "size": 11805,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/claude-id.ts",
+        "size": 3912,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/cursor-errors.ts",
+        "size": 16528,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/desktop-executor-contract.ts",
+        "size": 739,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/discovery.ts",
+        "size": 17849,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/effort-map.ts",
+        "size": 13945,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/envelope-echo.ts",
+        "size": 11075,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/exec-policy.ts",
+        "size": 3318,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/framing.ts",
+        "size": 9053,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/gen/agent_pb.ts",
+        "size": 483198,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/h2-pool.ts",
+        "size": 4494,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/http1-bidi.ts",
+        "size": 13047,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/images.ts",
+        "size": 28515,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/kv-store.ts",
+        "size": 1687,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/live-models.ts",
+        "size": 12398,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/live-smoke-gate.ts",
+        "size": 1398,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/live-transport.ts",
+        "size": 81048,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/mcp-config.ts",
+        "size": 1701,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/mcp-manager.ts",
+        "size": 14268,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/message-mapper.ts",
+        "size": 2267,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/native-exec-common.ts",
+        "size": 2641,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/native-exec-desktop.ts",
+        "size": 8096,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/native-exec-fs.ts",
+        "size": 13898,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/native-exec-mcp.ts",
+        "size": 6428,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/native-exec-network.ts",
+        "size": 1971,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/native-exec-shell.ts",
+        "size": 23127,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/native-exec-tools.ts",
+        "size": 5951,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/native-exec.ts",
+        "size": 33527,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/policy-error.ts",
+        "size": 3549,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/protobuf-events.ts",
+        "size": 61956,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/protobuf-request.ts",
+        "size": 97749,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/request-builder.ts",
+        "size": 22985,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/thread-continuity.ts",
+        "size": 5274,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/tool-definitions.ts",
+        "size": 7570,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/tool-guidance.ts",
+        "size": 16805,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/tool-naming.ts",
+        "size": 11152,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/tool-result-normalize.ts",
+        "size": 5693,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/tool-schemas.ts",
+        "size": 11004,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/transport-retry.ts",
+        "size": 8311,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/transport.ts",
+        "size": 3205,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/cursor/types.ts",
+        "size": 4743,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/devin.ts",
+        "size": 27542,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/devin/cloud-direct/auth.ts",
+        "size": 10342,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/devin/cloud-direct/catalog.ts",
+        "size": 13642,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/devin/cloud-direct/chat.ts",
+        "size": 69247,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/devin/cloud-direct/index.ts",
+        "size": 2031,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/devin/cloud-direct/metadata.ts",
+        "size": 7191,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/devin/cloud-direct/wire.ts",
+        "size": 7372,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/devin/live-models.ts",
+        "size": 9911,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/empty-tool-output-annotation.ts",
+        "size": 1879,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/exec-tool-result-normalize.ts",
+        "size": 14690,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/google-antigravity-replay.ts",
+        "size": 40926,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/google-antigravity-wire.ts",
+        "size": 7717,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/google-errors.ts",
+        "size": 5972,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/google-http.ts",
+        "size": 5800,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/google-tool-schema.ts",
+        "size": 8651,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/google-truncation.ts",
+        "size": 1262,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/google-wire-compiler.ts",
+        "size": 10789,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/google.ts",
+        "size": 80467,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/identity.ts",
+        "size": 4779,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/image.ts",
+        "size": 1147,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/input-media-guard.ts",
+        "size": 1733,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/kiro-calibration.ts",
+        "size": 9042,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/kiro-constants.ts",
+        "size": 6018,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/kiro-errors.ts",
+        "size": 8564,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/kiro-events.ts",
+        "size": 9612,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/kiro-images.ts",
+        "size": 6918,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/kiro-retry.ts",
+        "size": 12992,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/kiro-thinking.ts",
+        "size": 4356,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/kiro-tool-fallback.ts",
+        "size": 1272,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/kiro-tools.ts",
+        "size": 13358,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/kiro-truncation.ts",
+        "size": 1239,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/kiro-wire.ts",
+        "size": 5338,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/kiro.ts",
+        "size": 559,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/kiro/adapter.ts",
+        "size": 17174,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/kiro/conversation.ts",
+        "size": 6082,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/kiro/payload.ts",
+        "size": 23531,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/kiro/reasoning.ts",
+        "size": 2240,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/kiro/stream.ts",
+        "size": 47714,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/kiro/usage.ts",
+        "size": 9851,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/kiro/wire.ts",
+        "size": 2358,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/mimo-free.ts",
+        "size": 10745,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/ollama-native-url.ts",
+        "size": 4179,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/ollama-native.ts",
+        "size": 46138,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/openai-chat-images.ts",
+        "size": 3774,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/openai-chat-url.ts",
+        "size": 489,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/openai-chat.ts",
+        "size": 42066,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/openai-chat/errors.ts",
+        "size": 4818,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/openai-chat/messages.ts",
+        "size": 17113,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/openai-chat/passthrough.ts",
+        "size": 6453,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/openai-chat/response-events.ts",
+        "size": 5253,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/openai-chat/tool-call-validation.ts",
+        "size": 8145,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/openai-chat/tool-schema.ts",
+        "size": 20989,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/openai-chat/wire.ts",
+        "size": 2373,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/openai-responses-url.ts",
+        "size": 707,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/openai-responses.ts",
+        "size": 353,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/openai-responses/canonical-forward.ts",
+        "size": 9644,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/openai-responses/image-gen.ts",
+        "size": 16905,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/openai-responses/internal.ts",
+        "size": 136,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/openai-responses/passthrough.ts",
+        "size": 35116,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/openai-responses/prompt-cache.ts",
+        "size": 3634,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/openai-responses/reasoning.ts",
+        "size": 11227,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/openai-responses/request-strips.ts",
+        "size": 7880,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/openai-responses/tool-output-recovery.ts",
+        "size": 25051,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/openai-responses/tool-schema.ts",
+        "size": 12078,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/openai-responses/web-search.ts",
+        "size": 5751,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/opencode-go-additional-tools.ts",
+        "size": 1525,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/qoder/adapter.ts",
+        "size": 5549,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/qoder/live-models.ts",
+        "size": 4247,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/qoder/profiles.ts",
+        "size": 1423,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/qoder/scaffold-guard.ts",
+        "size": 10715,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/registry.ts",
+        "size": 7897,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/responses-code-mode.ts",
+        "size": 3954,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/responses-tool-schema.ts",
+        "size": 7072,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/routed-agent-messages.ts",
+        "size": 2469,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/run-turn-queue.ts",
+        "size": 5455,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/tool-call-id.ts",
+        "size": 4969,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/tool-catalog-nudge.ts",
+        "size": 8837,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/upstream-http-error.ts",
+        "size": 1742,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/xai-schema-analysis.ts",
+        "size": 3918,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/xai-tool-schema.ts",
+        "size": 15479,
+        "mode": 420
+      },
+      {
+        "path": "src/adapters/xai-web-search.ts",
+        "size": 9702,
+        "mode": 420
+      },
+      {
+        "path": "src/AGENTS.md",
+        "size": 2438,
+        "mode": 420
+      },
+      {
+        "path": "src/bridge.ts",
+        "size": 359,
+        "mode": 420
+      },
+      {
+        "path": "src/bridge/errors.ts",
+        "size": 1003,
+        "mode": 420
+      },
+      {
+        "path": "src/bridge/internal.ts",
+        "size": 7900,
+        "mode": 420
+      },
+      {
+        "path": "src/bridge/response-json.ts",
+        "size": 28216,
+        "mode": 420
+      },
+      {
+        "path": "src/bridge/sse.ts",
+        "size": 73934,
+        "mode": 420
+      },
+      {
+        "path": "src/chat/image-parts.ts",
+        "size": 7217,
+        "mode": 420
+      },
+      {
+        "path": "src/chat/inbound.ts",
+        "size": 18014,
+        "mode": 420
+      },
+      {
+        "path": "src/chat/outbound.ts",
+        "size": 50149,
+        "mode": 420
+      },
+      {
+        "path": "src/claude/agents-inject.ts",
+        "size": 14261,
+        "mode": 420
+      },
+      {
+        "path": "src/claude/alias.ts",
+        "size": 6358,
+        "mode": 420
+      },
+      {
+        "path": "src/claude/auth-detect.ts",
+        "size": 9409,
+        "mode": 420
+      },
+      {
+        "path": "src/claude/auth-mode-migration.ts",
+        "size": 1476,
+        "mode": 420
+      },
+      {
+        "path": "src/claude/auth-mode.ts",
+        "size": 2466,
+        "mode": 420
+      },
+      {
+        "path": "src/claude/compatibility.ts",
+        "size": 8906,
+        "mode": 420
+      },
+      {
+        "path": "src/claude/context-windows.ts",
+        "size": 9850,
+        "mode": 420
+      },
+      {
+        "path": "src/claude/desktop-3p-guard.ts",
+        "size": 1541,
+        "mode": 420
+      },
+      {
+        "path": "src/claude/desktop-3p-library.ts",
+        "size": 3302,
+        "mode": 420
+      },
+      {
+        "path": "src/claude/desktop-3p-paths.ts",
+        "size": 3634,
+        "mode": 420
+      },
+      {
+        "path": "src/claude/desktop-3p.ts",
+        "size": 36118,
+        "mode": 420
+      },
+      {
+        "path": "src/claude/desktop-discovery-inputs.ts",
+        "size": 1769,
+        "mode": 420
+      },
+      {
+        "path": "src/claude/desktop-health.ts",
+        "size": 758,
+        "mode": 420
+      },
+      {
+        "path": "src/claude/desktop-policy.ts",
+        "size": 5382,
+        "mode": 420
+      },
+      {
+        "path": "src/claude/desktop-profile.ts",
+        "size": 12465,
+        "mode": 420
+      },
+      {
+        "path": "src/claude/desktop-remote-store-artifact.ts",
+        "size": 12024,
+        "mode": 420
+      },
+      {
+        "path": "src/claude/desktop-remote-store-io.ts",
+        "size": 5000,
+        "mode": 420
+      },
+      {
+        "path": "src/claude/desktop-remote-store-state.ts",
+        "size": 8456,
+        "mode": 420
+      },
+      {
+        "path": "src/claude/desktop-remote-store.ts",
+        "size": 17514,
+        "mode": 420
+      },
+      {
+        "path": "src/claude/gateway-cache.ts",
+        "size": 5323,
+        "mode": 420
+      },
+      {
+        "path": "src/claude/inbound-cache-stabilize.ts",
+        "size": 5798,
+        "mode": 420
+      },
+      {
+        "path": "src/claude/inbound-content-options.ts",
+        "size": 2937,
+        "mode": 420
+      },
+      {
+        "path": "src/claude/inbound-debug.ts",
+        "size": 6773,
+        "mode": 420
+      },
+      {
+        "path": "src/claude/inbound-model-options.ts",
+        "size": 7286,
+        "mode": 420
+      },
+      {
+        "path": "src/claude/inbound-records.ts",
+        "size": 523,
+        "mode": 420
+      },
+      {
+        "path": "src/claude/inbound.ts",
+        "size": 22420,
+        "mode": 420
+      },
+      {
+        "path": "src/claude/model-info.ts",
+        "size": 12849,
+        "mode": 420
+      },
+      {
+        "path": "src/claude/outbound.ts",
+        "size": 47541,
+        "mode": 420
+      },
+      {
+        "path": "src/cli.ts",
+        "size": 587,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/access.ts",
+        "size": 8670,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/account-api.ts",
+        "size": 17221,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/account-auth.ts",
+        "size": 17262,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/account-catalog-refresh.ts",
+        "size": 840,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/account-extended.ts",
+        "size": 46389,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/account-history.ts",
+        "size": 3507,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/account-main.ts",
+        "size": 17913,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/account.ts",
+        "size": 16776,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/agent-driven.ts",
+        "size": 2461,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/agent.ts",
+        "size": 11116,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/alias.ts",
+        "size": 3631,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/aside-profiles.ts",
+        "size": 773,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/capabilities-command.ts",
+        "size": 3319,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/capabilities.ts",
+        "size": 41384,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/catalog-prewarm.ts",
+        "size": 1052,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/catalog.ts",
+        "size": 7016,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/claude-agent-startup-sync.ts",
+        "size": 4500,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/claude-desktop.ts",
+        "size": 19234,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/claude.ts",
+        "size": 40389,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/codex-cli-update.ts",
+        "size": 3825,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/codex-log-guard-doctor.ts",
+        "size": 3887,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/codex-shim-autorestore.ts",
+        "size": 2012,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/codex-shim-readiness.ts",
+        "size": 2875,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/combo.ts",
+        "size": 6115,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/config-command.ts",
+        "size": 15535,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/connect.ts",
+        "size": 20195,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/debug.ts",
+        "size": 9297,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/dispatch.ts",
+        "size": 48998,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/doctor.ts",
+        "size": 67448,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/effort.ts",
+        "size": 14249,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/ensure-desired-integrations.ts",
+        "size": 6040,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/export-command.ts",
+        "size": 9251,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/gui-pair-client.ts",
+        "size": 5852,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/gui.ts",
+        "size": 3134,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/help.ts",
+        "size": 7684,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/hub.ts",
+        "size": 16162,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/index.ts",
+        "size": 83426,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/init.ts",
+        "size": 11948,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/inspect.ts",
+        "size": 9992,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/integrations.ts",
+        "size": 17609,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/interactive-confirm.ts",
+        "size": 5066,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/internal-command.ts",
+        "size": 2022,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/lab.ts",
+        "size": 25675,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/launcher-context.ts",
+        "size": 5449,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/minimax.ts",
+        "size": 18885,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/model-selection-guidance.ts",
+        "size": 1476,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/models-runtime-subcommands.ts",
+        "size": 1282,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/models-runtime.ts",
+        "size": 23269,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/models.ts",
+        "size": 19135,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/observe.ts",
+        "size": 13772,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/opencode.ts",
+        "size": 28438,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/provider-runtime.ts",
+        "size": 13087,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/provider.ts",
+        "size": 20017,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/ready.ts",
+        "size": 12543,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/registry.ts",
+        "size": 31311,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/remote-workspace.ts",
+        "size": 6079,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/restart-scope.ts",
+        "size": 8318,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/root.ts",
+        "size": 3591,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/route-policy.ts",
+        "size": 3385,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/runtime-api.ts",
+        "size": 17368,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/star-prompt.ts",
+        "size": 10855,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/status-oauth.ts",
+        "size": 2457,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/status-probes.ts",
+        "size": 7750,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/status.ts",
+        "size": 33665,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/storage.ts",
+        "size": 10515,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/system-command.ts",
+        "size": 7147,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/system-restart-client.ts",
+        "size": 6773,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/tray-proxy.ts",
+        "size": 6705,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/uninstall-client-state.ts",
+        "size": 4059,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/uninstall-plan.ts",
+        "size": 4006,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/usage-report.ts",
+        "size": 8728,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/v2.ts",
+        "size": 13777,
+        "mode": 420
+      },
+      {
+        "path": "src/cli/version-skew.ts",
+        "size": 4057,
+        "mode": 420
+      },
+      {
+        "path": "src/client/catalog-compatibility.ts",
+        "size": 9206,
+        "mode": 420
+      },
+      {
+        "path": "src/client/connect.ts",
+        "size": 44721,
+        "mode": 420
+      },
+      {
+        "path": "src/client/hub-client.ts",
+        "size": 29677,
+        "mode": 420
+      },
+      {
+        "path": "src/client/hub-relay.ts",
+        "size": 12109,
+        "mode": 420
+      },
+      {
+        "path": "src/client/hub-state.ts",
+        "size": 9423,
+        "mode": 420
+      },
+      {
+        "path": "src/client/lifecycle-lock.ts",
+        "size": 5709,
+        "mode": 420
+      },
+      {
+        "path": "src/client/machine-api.ts",
+        "size": 5794,
+        "mode": 420
+      },
+      {
+        "path": "src/client/machine-auth.ts",
+        "size": 1932,
+        "mode": 420
+      },
+      {
+        "path": "src/client/machine-listener.ts",
+        "size": 7224,
+        "mode": 420
+      },
+      {
+        "path": "src/client/runtime.ts",
+        "size": 3645,
+        "mode": 420
+      },
+      {
+        "path": "src/client/state.ts",
+        "size": 9363,
+        "mode": 420
+      },
+      {
+        "path": "src/clients/aside-profiles.ts",
+        "size": 10304,
+        "mode": 420
+      },
+      {
+        "path": "src/clients/config-export.ts",
+        "size": 66767,
+        "mode": 420
+      },
+      {
+        "path": "src/clients/config-export/cline.ts",
+        "size": 2817,
+        "mode": 420
+      },
+      {
+        "path": "src/clients/config-export/constants.ts",
+        "size": 3151,
+        "mode": 420
+      },
+      {
+        "path": "src/clients/config-export/contracts.ts",
+        "size": 5924,
+        "mode": 420
+      },
+      {
+        "path": "src/clients/config-export/dsh.ts",
+        "size": 5541,
+        "mode": 420
+      },
+      {
+        "path": "src/clients/config-export/fast-models.ts",
+        "size": 1132,
+        "mode": 420
+      },
+      {
+        "path": "src/clients/config-export/mcode.ts",
+        "size": 3477,
+        "mode": 420
+      },
+      {
+        "path": "src/clients/config-export/model-metadata.ts",
+        "size": 7096,
+        "mode": 420
+      },
+      {
+        "path": "src/clients/config-export/omp.ts",
+        "size": 3739,
+        "mode": 420
+      },
+      {
+        "path": "src/clients/config-export/raycast.ts",
+        "size": 3705,
+        "mode": 420
+      },
+      {
+        "path": "src/clients/config-export/zcode.ts",
+        "size": 5523,
+        "mode": 420
+      },
+      {
+        "path": "src/clients/model-presentation.ts",
+        "size": 2262,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/account-id.ts",
+        "size": 1527,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/account-label.ts",
+        "size": 3048,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/account-lifecycle.ts",
+        "size": 10154,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/account-namespace-match.ts",
+        "size": 2203,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/account-namespaces.ts",
+        "size": 7444,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/account-pause.ts",
+        "size": 973,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/account-priority.ts",
+        "size": 3897,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/account-runtime-state.ts",
+        "size": 3084,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/account-store.ts",
+        "size": 59803,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/account-usability.ts",
+        "size": 4210,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/admission.ts",
+        "size": 10460,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/affinity-debug.ts",
+        "size": 5637,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/app-server-processes.ts",
+        "size": 55840,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/app-server-restart-service.ts",
+        "size": 11484,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/auth-api.ts",
+        "size": 2048,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/auth-api/account-list.ts",
+        "size": 24316,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/auth-api/http.ts",
+        "size": 1240,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/auth-api/login-flow.ts",
+        "size": 27251,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/auth-api/login-state.ts",
+        "size": 2627,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/auth-api/main-account-probe.ts",
+        "size": 17306,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/auth-api/pool-mode-gate.ts",
+        "size": 13603,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/auth-api/pool-quota-probe.ts",
+        "size": 23708,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/auth-api/reset-credit-service.ts",
+        "size": 20018,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/auth-api/routes.ts",
+        "size": 23217,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/auth-api/runtime-config.ts",
+        "size": 1757,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/auth-collision.ts",
+        "size": 4841,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/auth-context.ts",
+        "size": 64616,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/autostart-health.ts",
+        "size": 8773,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/catalog-admission.ts",
+        "size": 8196,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/catalog-auto-refresh.ts",
+        "size": 7641,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/catalog-refresh-status.ts",
+        "size": 7875,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/catalog-write-serialization.ts",
+        "size": 9219,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/catalog.ts",
+        "size": 3503,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/catalog/account-models.ts",
+        "size": 2721,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/catalog/aggregation.ts",
+        "size": 19459,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/catalog/auto-review.ts",
+        "size": 23725,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/catalog/build-entries.ts",
+        "size": 47446,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/catalog/bundled.ts",
+        "size": 20351,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/catalog/combo-member.ts",
+        "size": 19495,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/catalog/derive-entry.ts",
+        "size": 11864,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/catalog/effort.ts",
+        "size": 26821,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/catalog/filesystem-evidence.ts",
+        "size": 10834,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/catalog/gated-native-warn.ts",
+        "size": 3440,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/catalog/gather-capture.ts",
+        "size": 24000,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/catalog/kinds.ts",
+        "size": 165,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/catalog/metadata.ts",
+        "size": 42807,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/catalog/model-hints.ts",
+        "size": 35255,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/catalog/model-visibility.ts",
+        "size": 14873,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/catalog/native-models.ts",
+        "size": 11224,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/catalog/parsing.ts",
+        "size": 44015,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/catalog/provider-fetch.ts",
+        "size": 1553,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/catalog/provider-models.ts",
+        "size": 35221,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/catalog/remote.ts",
+        "size": 11246,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/catalog/reserve.ts",
+        "size": 2746,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/catalog/restore.ts",
+        "size": 5549,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/catalog/retained-sync.ts",
+        "size": 31442,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/catalog/routed-gather.ts",
+        "size": 45744,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/catalog/subagent-roster.ts",
+        "size": 8475,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/catalog/sync.ts",
+        "size": 1639,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/cli-install-provenance.ts",
+        "size": 29823,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/codex-write-lock.ts",
+        "size": 16374,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/context-compat.ts",
+        "size": 4356,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/context-owner.ts",
+        "size": 9690,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/convergence-types.ts",
+        "size": 24259,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/convergence.ts",
+        "size": 30623,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/coordinator-doctor.ts",
+        "size": 13829,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/credential-mutation-epoch.ts",
+        "size": 348,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/custom-model-catalog-migration.ts",
+        "size": 7039,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/data/upstream-models.json",
+        "size": 365764,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/desired-state.ts",
+        "size": 12910,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/desktop-app-restart.ts",
+        "size": 14953,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/desktop-app/darwin.ts",
+        "size": 9916,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/desktop-app/handoff.ts",
+        "size": 12532,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/desktop-app/linux.ts",
+        "size": 14445,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/desktop-app/lock.ts",
+        "size": 8911,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/desktop-app/types.ts",
+        "size": 5796,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/desktop-app/windows.ts",
+        "size": 10581,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/exec-invocation.ts",
+        "size": 814,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/features.ts",
+        "size": 72866,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/forward-transport-headers.ts",
+        "size": 1393,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/generation.ts",
+        "size": 7511,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/history-job.ts",
+        "size": 20063,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/history-lock.ts",
+        "size": 9292,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/history-manifest.ts",
+        "size": 7439,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/history-migration-guardian.ts",
+        "size": 4263,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/history-provider.ts",
+        "size": 84724,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/history-transition.ts",
+        "size": 4243,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/history-worker.ts",
+        "size": 9174,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/home.ts",
+        "size": 8188,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/inject-coordination.ts",
+        "size": 19451,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/inject.ts",
+        "size": 48493,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/inject/config-toml.ts",
+        "size": 24457,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/inject/remove.ts",
+        "size": 8426,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/inject/restore.ts",
+        "size": 24170,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/inject/routing-classify.ts",
+        "size": 3579,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/inject/routing-target.ts",
+        "size": 4928,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/inject/standalone-web-search.ts",
+        "size": 6722,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/injected-marker.ts",
+        "size": 6119,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/integration-record.ts",
+        "size": 10351,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/internal/catalog-writer.ts",
+        "size": 6219,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/internal/history-writer.ts",
+        "size": 3558,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/journal.ts",
+        "size": 14776,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/legacy-config-keys.ts",
+        "size": 2839,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/lineage.ts",
+        "size": 21299,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/log-guard/inspect-schema.ts",
+        "size": 5497,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/log-guard/inspect.ts",
+        "size": 13997,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/log-guard/lock.ts",
+        "size": 5927,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/log-guard/maintenance.ts",
+        "size": 15057,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/log-guard/path-safety.ts",
+        "size": 3586,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/log-guard/policy.ts",
+        "size": 1492,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/log-guard/processes.ts",
+        "size": 8002,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/log-guard/protection.ts",
+        "size": 18810,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/log-guard/sqlite-errors.ts",
+        "size": 462,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/loopback-target.ts",
+        "size": 4674,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/main-account-cache.ts",
+        "size": 4891,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/main-account-hard-lock.ts",
+        "size": 2399,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/main-account.ts",
+        "size": 20012,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/main-device-reauth-api.ts",
+        "size": 3149,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/main-device-reauth.ts",
+        "size": 8910,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/management-convergence.ts",
+        "size": 5675,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/model-cache.ts",
+        "size": 11154,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/model-entitlements.ts",
+        "size": 54594,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/multi-agent-mode-policy.ts",
+        "size": 1897,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/native-main-admission.ts",
+        "size": 2048,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/native-main-auth-temp.ts",
+        "size": 6422,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/native-main-claim.ts",
+        "size": 7745,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/native-main-lock-file.ts",
+        "size": 5233,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/native-main-owner.ts",
+        "size": 12355,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/native-profile-api.ts",
+        "size": 10638,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/native-profile-manager.ts",
+        "size": 63478,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/native-profile-processes.ts",
+        "size": 7812,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/native-profile-recovery.ts",
+        "size": 2660,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/native-profile-stage-store.ts",
+        "size": 16227,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/native-profile-startup.ts",
+        "size": 28977,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/native-profile-store.ts",
+        "size": 35205,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/native-profile-types.ts",
+        "size": 2941,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/native-residue.ts",
+        "size": 26238,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/ocx-compaction-history.ts",
+        "size": 7930,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/paths.ts",
+        "size": 5313,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/plan-from-token.ts",
+        "size": 5940,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/plan.ts",
+        "size": 1490,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/plugins-doctor.ts",
+        "size": 10181,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/pool-refresh-backoff.ts",
+        "size": 6508,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/pool-rotation.ts",
+        "size": 541,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/project-config-warnings.ts",
+        "size": 18821,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/prompt-journal.ts",
+        "size": 13198,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/prompt-layers.ts",
+        "size": 49653,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/prompt-layers/encoding.ts",
+        "size": 3145,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/prompt-layers/paths.ts",
+        "size": 1750,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/prompt-layers/revision.ts",
+        "size": 2564,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/prompt-layers/toml-edit.ts",
+        "size": 6661,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/prompt-layers/toml-read.ts",
+        "size": 8090,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/prompt-lock.ts",
+        "size": 5000,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/prompt-text-probe.ts",
+        "size": 28937,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/quota-401-recovery.ts",
+        "size": 8133,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/quota-auto-refresh-state.ts",
+        "size": 1155,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/quota-auto-refresh.ts",
+        "size": 17429,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/quota-capacity.ts",
+        "size": 5697,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/quota-history.ts",
+        "size": 8254,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/quota-recovery-timing.ts",
+        "size": 1246,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/quota-refresh-outcome.ts",
+        "size": 1138,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/quota-rejection.ts",
+        "size": 11623,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/quota-types.ts",
+        "size": 1899,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/quota.ts",
+        "size": 47340,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/refresh.ts",
+        "size": 2585,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/reserve-availability.ts",
+        "size": 9462,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/reset-credit-auto-redeem.ts",
+        "size": 12991,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/reset-credit-operation-ledger.ts",
+        "size": 57378,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/reset-credit-recovery.ts",
+        "size": 39123,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/retired-model-migration.ts",
+        "size": 1772,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/routing-adoption.ts",
+        "size": 7807,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/routing.ts",
+        "size": 76916,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/routing/active-account.ts",
+        "size": 8848,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/routing/cooldown-math.ts",
+        "size": 13455,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/routing/health-store.ts",
+        "size": 17188,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/routing/probe-lease.ts",
+        "size": 15730,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/routing/selection.ts",
+        "size": 28894,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/routing/thread-affinity.ts",
+        "size": 22325,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/runtime.ts",
+        "size": 39781,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/shim-fingerprint.ts",
+        "size": 8509,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/shim-inspect.ts",
+        "size": 7795,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/shim-probe.ts",
+        "size": 13340,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/shim-restore-lock.ts",
+        "size": 6002,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/shim-state-file.ts",
+        "size": 5673,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/shim-templates.ts",
+        "size": 9797,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/shim.ts",
+        "size": 54261,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/standalone-web-search-authority.ts",
+        "size": 2168,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/subagent-defaults.ts",
+        "size": 19630,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/subagent-model-fallback.ts",
+        "size": 34315,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/sync.ts",
+        "size": 15627,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/transition-state.ts",
+        "size": 28301,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/upstream-host-health.ts",
+        "size": 12942,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/user-identity.ts",
+        "size": 23806,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/warmup.ts",
+        "size": 11651,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/websocket-registry.ts",
+        "size": 3060,
+        "mode": 420
+      },
+      {
+        "path": "src/codex/write-coordination.ts",
+        "size": 4762,
+        "mode": 420
+      },
+      {
+        "path": "src/combos/failover.ts",
+        "size": 21662,
+        "mode": 420
+      },
+      {
+        "path": "src/combos/identifiers.ts",
+        "size": 3186,
+        "mode": 420
+      },
+      {
+        "path": "src/combos/index.ts",
+        "size": 1403,
+        "mode": 420
+      },
+      {
+        "path": "src/combos/request.ts",
+        "size": 5295,
+        "mode": 420
+      },
+      {
+        "path": "src/combos/reset-window.ts",
+        "size": 1448,
+        "mode": 420
+      },
+      {
+        "path": "src/combos/resolve.ts",
+        "size": 17471,
+        "mode": 420
+      },
+      {
+        "path": "src/combos/types.ts",
+        "size": 13869,
+        "mode": 420
+      },
+      {
+        "path": "src/compatibility/index.ts",
+        "size": 883,
+        "mode": 420
+      },
+      {
+        "path": "src/compatibility/manifest.ts",
+        "size": 9713,
+        "mode": 420
+      },
+      {
+        "path": "src/compatibility/openai-responses.ts",
+        "size": 5749,
+        "mode": 420
+      },
+      {
+        "path": "src/config.ts",
+        "size": 18955,
+        "mode": 420
+      },
+      {
+        "path": "src/config/atomic-write.ts",
+        "size": 9657,
+        "mode": 420
+      },
+      {
+        "path": "src/config/diagnostics.ts",
+        "size": 32874,
+        "mode": 420
+      },
+      {
+        "path": "src/config/feature-flags.ts",
+        "size": 2333,
+        "mode": 420
+      },
+      {
+        "path": "src/config/initialize.ts",
+        "size": 5383,
+        "mode": 420
+      },
+      {
+        "path": "src/config/live-reconcile.ts",
+        "size": 17918,
+        "mode": 420
+      },
+      {
+        "path": "src/config/load-degrade.ts",
+        "size": 45329,
+        "mode": 420
+      },
+      {
+        "path": "src/config/multi-agent-surface.ts",
+        "size": 2672,
+        "mode": 420
+      },
+      {
+        "path": "src/config/mutation-lock.ts",
+        "size": 9185,
+        "mode": 420
+      },
+      {
+        "path": "src/config/openai-tier-backup.ts",
+        "size": 10663,
+        "mode": 420
+      },
+      {
+        "path": "src/config/paths.ts",
+        "size": 3196,
+        "mode": 420
+      },
+      {
+        "path": "src/config/pending-teardown-names.d.mts",
+        "size": 599,
+        "mode": 420
+      },
+      {
+        "path": "src/config/pending-teardown-names.mjs",
+        "size": 3218,
+        "mode": 420
+      },
+      {
+        "path": "src/config/pending-teardown.ts",
+        "size": 12908,
+        "mode": 420
+      },
+      {
+        "path": "src/config/persist-unlocked.ts",
+        "size": 4536,
+        "mode": 420
+      },
+      {
+        "path": "src/config/process-state.ts",
+        "size": 11014,
+        "mode": 420
+      },
+      {
+        "path": "src/config/provider-name.ts",
+        "size": 945,
+        "mode": 420
+      },
+      {
+        "path": "src/config/provider-validation.ts",
+        "size": 22997,
+        "mode": 420
+      },
+      {
+        "path": "src/config/proxy-env.ts",
+        "size": 8990,
+        "mode": 420
+      },
+      {
+        "path": "src/config/rebase-provenance.ts",
+        "size": 4463,
+        "mode": 420
+      },
+      {
+        "path": "src/config/salvage.ts",
+        "size": 10689,
+        "mode": 420
+      },
+      {
+        "path": "src/config/schema/config-schema.ts",
+        "size": 30366,
+        "mode": 420
+      },
+      {
+        "path": "src/config/schema/leaf-validators.ts",
+        "size": 42389,
+        "mode": 420
+      },
+      {
+        "path": "src/config/subagent-models.ts",
+        "size": 1152,
+        "mode": 420
+      },
+      {
+        "path": "src/config/warn-memo.ts",
+        "size": 1033,
+        "mode": 420
+      },
+      {
+        "path": "src/generated/compatibility-version.json",
+        "size": 184922,
+        "mode": 420
+      },
+      {
+        "path": "src/generated/model-metadata.ts",
+        "size": 63706,
+        "mode": 420
+      },
+      {
+        "path": "src/github/star-state.ts",
+        "size": 8434,
+        "mode": 420
+      },
+      {
+        "path": "src/grok/catalog.ts",
+        "size": 2550,
+        "mode": 420
+      },
+      {
+        "path": "src/grok/effort.ts",
+        "size": 3075,
+        "mode": 420
+      },
+      {
+        "path": "src/grok/grpc-web.ts",
+        "size": 3491,
+        "mode": 420
+      },
+      {
+        "path": "src/grok/inject.ts",
+        "size": 59351,
+        "mode": 420
+      },
+      {
+        "path": "src/grok/inspect.ts",
+        "size": 1929,
+        "mode": 420
+      },
+      {
+        "path": "src/grok/models.ts",
+        "size": 2148,
+        "mode": 420
+      },
+      {
+        "path": "src/grok/reset-coupon-ledger.ts",
+        "size": 4412,
+        "mode": 420
+      },
+      {
+        "path": "src/grok/reset-coupons.ts",
+        "size": 7991,
+        "mode": 420
+      },
+      {
+        "path": "src/grok/status.ts",
+        "size": 6028,
+        "mode": 420
+      },
+      {
+        "path": "src/grok/sync.ts",
+        "size": 2995,
+        "mode": 420
+      },
+      {
+        "path": "src/images/artifacts.ts",
+        "size": 20840,
+        "mode": 420
+      },
+      {
+        "path": "src/images/fulfill-video.ts",
+        "size": 5902,
+        "mode": 420
+      },
+      {
+        "path": "src/images/fulfill.ts",
+        "size": 5972,
+        "mode": 420
+      },
+      {
+        "path": "src/images/index.ts",
+        "size": 504,
+        "mode": 420
+      },
+      {
+        "path": "src/images/loop.ts",
+        "size": 51246,
+        "mode": 420
+      },
+      {
+        "path": "src/images/plan.ts",
+        "size": 7723,
+        "mode": 420
+      },
+      {
+        "path": "src/images/synthetic-tool.ts",
+        "size": 5172,
+        "mode": 420
+      },
+      {
+        "path": "src/images/types.ts",
+        "size": 1364,
+        "mode": 420
+      },
+      {
+        "path": "src/images/xai-client.ts",
+        "size": 6381,
+        "mode": 420
+      },
+      {
+        "path": "src/images/xai-video-client.ts",
+        "size": 5511,
+        "mode": 420
+      },
+      {
+        "path": "src/index.ts",
+        "size": 896,
+        "mode": 420
+      },
+      {
+        "path": "src/integrations/aside-profile-context.ts",
+        "size": 12725,
+        "mode": 420
+      },
+      {
+        "path": "src/integrations/aside-profile-journal.ts",
+        "size": 12889,
+        "mode": 420
+      },
+      {
+        "path": "src/integrations/aside-profiles.ts",
+        "size": 8558,
+        "mode": 420
+      },
+      {
+        "path": "src/integrations/catalog-refresh.ts",
+        "size": 1706,
+        "mode": 420
+      },
+      {
+        "path": "src/integrations/cline-document.ts",
+        "size": 3627,
+        "mode": 420
+      },
+      {
+        "path": "src/integrations/cline-io.ts",
+        "size": 7081,
+        "mode": 420
+      },
+      {
+        "path": "src/integrations/cline-transaction.ts",
+        "size": 2789,
+        "mode": 420
+      },
+      {
+        "path": "src/integrations/config-io.ts",
+        "size": 15230,
+        "mode": 420
+      },
+      {
+        "path": "src/integrations/cursor-detect.ts",
+        "size": 4993,
+        "mode": 420
+      },
+      {
+        "path": "src/integrations/cursor-effort-table.ts",
+        "size": 6908,
+        "mode": 420
+      },
+      {
+        "path": "src/integrations/cursor-seen.ts",
+        "size": 1069,
+        "mode": 420
+      },
+      {
+        "path": "src/integrations/journal.ts",
+        "size": 17787,
+        "mode": 420
+      },
+      {
+        "path": "src/integrations/merge.ts",
+        "size": 10669,
+        "mode": 420
+      },
+      {
+        "path": "src/integrations/mutation-flight.ts",
+        "size": 2322,
+        "mode": 420
+      },
+      {
+        "path": "src/integrations/native/ownership-preflight.ts",
+        "size": 9100,
+        "mode": 420
+      },
+      {
+        "path": "src/integrations/omp-yaml-source.ts",
+        "size": 17548,
+        "mode": 420
+      },
+      {
+        "path": "src/integrations/owned-refresh.ts",
+        "size": 3442,
+        "mode": 420
+      },
+      {
+        "path": "src/integrations/ownership-policy.ts",
+        "size": 6185,
+        "mode": 420
+      },
+      {
+        "path": "src/integrations/ownership.ts",
+        "size": 8576,
+        "mode": 420
+      },
+      {
+        "path": "src/integrations/raycast-detect.ts",
+        "size": 4209,
+        "mode": 420
+      },
+      {
+        "path": "src/integrations/registry.ts",
+        "size": 13750,
+        "mode": 420
+      },
+      {
+        "path": "src/integrations/serialize.ts",
+        "size": 14261,
+        "mode": 420
+      },
+      {
+        "path": "src/integrations/state.ts",
+        "size": 23620,
+        "mode": 420
+      },
+      {
+        "path": "src/integrations/store.ts",
+        "size": 4796,
+        "mode": 420
+      },
+      {
+        "path": "src/integrations/writer-lock.ts",
+        "size": 3419,
+        "mode": 420
+      },
+      {
+        "path": "src/integrations/writer.ts",
+        "size": 37074,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/artifacts/sanitize.ts",
+        "size": 26616,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/artifacts/secure-fs.ts",
+        "size": 15377,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/artifacts/store.ts",
+        "size": 11022,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/automation/budgets.ts",
+        "size": 2843,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/automation/config-persistence.ts",
+        "size": 8166,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/automation/constants.ts",
+        "size": 1244,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/automation/cooldown.ts",
+        "size": 3967,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/automation/dispatch.ts",
+        "size": 8873,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/automation/index.ts",
+        "size": 363,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/automation/orchestrator.ts",
+        "size": 18850,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/automation/persistence.ts",
+        "size": 20327,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/automation/planner.ts",
+        "size": 14914,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/automation/policy.ts",
+        "size": 5070,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/automation/queue.ts",
+        "size": 7041,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/automation/recovery.ts",
+        "size": 789,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/automation/route-context.ts",
+        "size": 777,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/automation/run-key.ts",
+        "size": 1637,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/automation/runs-query.ts",
+        "size": 1161,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/automation/types.ts",
+        "size": 4042,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/conformance/assertion.ts",
+        "size": 10841,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/conformance/digest.ts",
+        "size": 853,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/conformance/executor.ts",
+        "size": 31048,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/conformance/fixture-provider.ts",
+        "size": 929,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/conformance/fixtures/live-v1-cases.json",
+        "size": 18294,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/conformance/fixtures/protocol-v1-cases.json",
+        "size": 52590,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/conformance/harness-budget.ts",
+        "size": 1880,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/conformance/index.ts",
+        "size": 144,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/conformance/jcs.ts",
+        "size": 2589,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/conformance/json-pointer.ts",
+        "size": 1521,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/conformance/manifest.ts",
+        "size": 7144,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/conformance/mcp-stub.ts",
+        "size": 6210,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/conformance/negative-controls.ts",
+        "size": 7511,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/conformance/observation.ts",
+        "size": 13755,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/conformance/runner.ts",
+        "size": 2654,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/conformance/sse-normalize.ts",
+        "size": 2242,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/conformance/suite-manifest.ts",
+        "size": 2716,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/conformance/types.ts",
+        "size": 5357,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/constants.ts",
+        "size": 3257,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/digest.ts",
+        "size": 2277,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/events/errors.ts",
+        "size": 207,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/events/limits.ts",
+        "size": 4089,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/events/types.ts",
+        "size": 5576,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/events/validate.ts",
+        "size": 33598,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/fabric/constants.ts",
+        "size": 1388,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/fabric/executor.ts",
+        "size": 15966,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/fabric/index.ts",
+        "size": 2136,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/fabric/manifest.ts",
+        "size": 7541,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/fabric/observe.ts",
+        "size": 20856,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/fabric/patch.ts",
+        "size": 3575,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/fabric/producer-child.ts",
+        "size": 4568,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/fabric/producer-isolate.ts",
+        "size": 12872,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/fabric/producer-protocol.ts",
+        "size": 2239,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/fabric/scratch.ts",
+        "size": 15908,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/fabric/subject.ts",
+        "size": 3577,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/fabric/types.ts",
+        "size": 3839,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/fabric/verifier.ts",
+        "size": 3089,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/index.ts",
+        "size": 1894,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/ledger/artifact-refs.ts",
+        "size": 4453,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/ledger/invalidation.ts",
+        "size": 4579,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/ledger/purge.ts",
+        "size": 10678,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/ledger/store.ts",
+        "size": 15634,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/live/credential-lease.ts",
+        "size": 2490,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/live/destination.ts",
+        "size": 7886,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/live/executor.ts",
+        "size": 20987,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/live/inert-tools.ts",
+        "size": 1683,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/live/manifest.ts",
+        "size": 5447,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/live/mcp-loopback.ts",
+        "size": 1471,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/live/runner.ts",
+        "size": 1266,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/live/sandbox.ts",
+        "size": 3461,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/live/suite-manifest.ts",
+        "size": 2704,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/live/transport.ts",
+        "size": 6550,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/live/types.ts",
+        "size": 5713,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/observe/from-conformance.ts",
+        "size": 10085,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/observe/from-live.ts",
+        "size": 8080,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/paths.ts",
+        "size": 5698,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/projection/rebuild.ts",
+        "size": 18418,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/projection/schema.ts",
+        "size": 4450,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/projection/verdicts.ts",
+        "size": 16581,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/projection/verification.ts",
+        "size": 15781,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/public/bundle.ts",
+        "size": 10297,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/public/community-authority.ts",
+        "size": 7009,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/public/community-files.ts",
+        "size": 994,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/public/community.ts",
+        "size": 18557,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/public/file-safety.ts",
+        "size": 5075,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/public/ids.ts",
+        "size": 827,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/public/index.ts",
+        "size": 448,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/public/mutation-lock.ts",
+        "size": 14649,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/public/operator.ts",
+        "size": 13037,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/public/origin-purge.ts",
+        "size": 2915,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/public/origin.ts",
+        "size": 7916,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/public/privacy.ts",
+        "size": 6674,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/public/private-file.ts",
+        "size": 9118,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/public/project.ts",
+        "size": 4905,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/public/purge-test-fault.ts",
+        "size": 625,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/public/purge.ts",
+        "size": 8780,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/public/registry.ts",
+        "size": 1489,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/public/revocation.ts",
+        "size": 10389,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/public/signature.ts",
+        "size": 10251,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/public/storage.ts",
+        "size": 4469,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/public/strict-json.ts",
+        "size": 6415,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/public/time.ts",
+        "size": 877,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/public/types.ts",
+        "size": 4842,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/public/validate.ts",
+        "size": 15805,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/query/catalog.ts",
+        "size": 3893,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/query/connection.ts",
+        "size": 3252,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/query/constants.ts",
+        "size": 182,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/query/cursor.ts",
+        "size": 4868,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/query/dto-map.ts",
+        "size": 9845,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/query/errors.ts",
+        "size": 623,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/query/freshness.ts",
+        "size": 1628,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/query/index.ts",
+        "size": 1109,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/query/latest-observation.ts",
+        "size": 1848,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/query/passive-production.ts",
+        "size": 5569,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/query/queries.ts",
+        "size": 15483,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/query/types.ts",
+        "size": 6142,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/subject/behavior-fingerprint.ts",
+        "size": 4279,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/subject/installation-salt.ts",
+        "size": 4295,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/subject/protocol-subject.ts",
+        "size": 2679,
+        "mode": 420
+      },
+      {
+        "path": "src/lab/subject/route-subject.ts",
+        "size": 3488,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/abort.ts",
+        "size": 7169,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/account-selection-events.ts",
+        "size": 1186,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/admin-secrets.ts",
+        "size": 1775,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/admission.ts",
+        "size": 2934,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/app-owned-memory-stores.ts",
+        "size": 7059,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/app-owned-memory.ts",
+        "size": 8718,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/bounded-body.ts",
+        "size": 13698,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/bounded-subprocess.ts",
+        "size": 1133,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/bun-binary-validator.d.mts",
+        "size": 114,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/bun-binary-validator.mjs",
+        "size": 540,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/bun-runtime.ts",
+        "size": 8198,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/bun-stream-caps.ts",
+        "size": 5338,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/codex-restart-contract.ts",
+        "size": 6300,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/config-ownership.ts",
+        "size": 12462,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/crash-guard.ts",
+        "size": 14314,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/debug-log-buffer.ts",
+        "size": 3115,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/debug-settings.ts",
+        "size": 3641,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/debug.ts",
+        "size": 1198,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/destination-policy.ts",
+        "size": 24608,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/errors.ts",
+        "size": 22984,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/eventstream-decoder.ts",
+        "size": 10049,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/fabric-task-execution-authority.ts",
+        "size": 362,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/fabric-task-host.ts",
+        "size": 1202,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/gcp-adc.ts",
+        "size": 13507,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/gui-pair-capability.ts",
+        "size": 5135,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/injection-debug-log.ts",
+        "size": 2227,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/json-byte-size.ts",
+        "size": 2378,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/lab-activation.ts",
+        "size": 10054,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/lab-live-execution-authority.ts",
+        "size": 582,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/lab-live-host.ts",
+        "size": 1473,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/lab-live-pinned-sender.ts",
+        "size": 2549,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/lab-live-route-production.ts",
+        "size": 5015,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/lab-passive-linker-registration.ts",
+        "size": 981,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/local-destinations.ts",
+        "size": 8699,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/local-management-attestation.ts",
+        "size": 1847,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/local-management-capability.ts",
+        "size": 3480,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/local-provider-reload-contract.ts",
+        "size": 3691,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/open-url.ts",
+        "size": 984,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/optional-shutdown-hooks.ts",
+        "size": 2196,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/package-tree-integrity.ts",
+        "size": 4131,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/pinned-http.ts",
+        "size": 9958,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/privacy.ts",
+        "size": 2034,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/process-control.ts",
+        "size": 16077,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/provider-outbound.ts",
+        "size": 11481,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/provider-url.ts",
+        "size": 523,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/proxy-env.ts",
+        "size": 3754,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/redact-folding.ts",
+        "size": 8760,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/redact.ts",
+        "size": 17644,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/request-execution-budget.ts",
+        "size": 10718,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/retry-after.ts",
+        "size": 2240,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/self-launch-argv.ts",
+        "size": 603,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/server-resource-ownership.ts",
+        "size": 1879,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/service-secrets.ts",
+        "size": 9326,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/shadow-call.ts",
+        "size": 4161,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/sidecar-tracker.ts",
+        "size": 1900,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/spend-reservation-ledger.ts",
+        "size": 42048,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/sse-decoder.ts",
+        "size": 13827,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/state-store-registrations.ts",
+        "size": 6738,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/state-store-sweeper.ts",
+        "size": 5873,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/strict-semver.ts",
+        "size": 2519,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/system-restart-contract.ts",
+        "size": 2790,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/test-home-guard.ts",
+        "size": 7324,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/token-estimate.ts",
+        "size": 7731,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/tool-argument-integers.ts",
+        "size": 11615,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/translator-budget.ts",
+        "size": 14004,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/upstream-http-version.ts",
+        "size": 2435,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/upstream-reachability.ts",
+        "size": 4412,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/upstream-retry.ts",
+        "size": 27264,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/win-exec.ts",
+        "size": 5108,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/win-paths.ts",
+        "size": 2943,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/windows-atomic-replace.ts",
+        "size": 5075,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/windows-elevation.ts",
+        "size": 30891,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/windows-secret-acl.ts",
+        "size": 40164,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/windows-service-mutation-lock.ts",
+        "size": 5297,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/windows-service-wrappers.ts",
+        "size": 3336,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/windows-system-proxy.ts",
+        "size": 4753,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/windows-text.ts",
+        "size": 5416,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/windows-user-principal.ts",
+        "size": 15486,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/winsw.ts",
+        "size": 18369,
+        "mode": 420
+      },
+      {
+        "path": "src/lib/workflow-budget.ts",
+        "size": 29171,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/account-import/google-antigravity-adapter.ts",
+        "size": 2665,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/account-import/index.ts",
+        "size": 369,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/account-import/parser.ts",
+        "size": 3167,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/account-import/registry.ts",
+        "size": 776,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/account-import/service.ts",
+        "size": 2829,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/account-import/types.ts",
+        "size": 2926,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/account-quota-rank.ts",
+        "size": 8094,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/anthropic-routing.ts",
+        "size": 38454,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/anthropic.ts",
+        "size": 7463,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/callback-server.ts",
+        "size": 13632,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/chatgpt-device.ts",
+        "size": 10443,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/chatgpt.ts",
+        "size": 12263,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/command-code.ts",
+        "size": 10672,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/cursor.ts",
+        "size": 10416,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/devin.ts",
+        "size": 13215,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/devin/api-base.ts",
+        "size": 2848,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/devin/cli-import.ts",
+        "size": 5879,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/devin/login.ts",
+        "size": 39,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/devin/register-user.ts",
+        "size": 7019,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/devin/types.ts",
+        "size": 2941,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/generic-account-failover.ts",
+        "size": 23612,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/github-copilot.ts",
+        "size": 16748,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/google-antigravity.ts",
+        "size": 12522,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/health.ts",
+        "size": 17164,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/index.ts",
+        "size": 94524,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/key-providers.ts",
+        "size": 5980,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/kimi.ts",
+        "size": 9943,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/kiro-credentials.ts",
+        "size": 29494,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/kiro.ts",
+        "size": 28614,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/local-token-detect.ts",
+        "size": 5374,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/log.ts",
+        "size": 1630,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/login-cli.ts",
+        "size": 12434,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/meta-muse-device.ts",
+        "size": 19241,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/meta-muse.ts",
+        "size": 19061,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/nous.ts",
+        "size": 35386,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/open-browser-choice.ts",
+        "size": 1146,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/orcarouter.ts",
+        "size": 8336,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/pkce.ts",
+        "size": 595,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/pool-kernel.ts",
+        "size": 11233,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/pool-settings-capability.ts",
+        "size": 8287,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/store.ts",
+        "size": 51052,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/token-guardian.ts",
+        "size": 14603,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/types.ts",
+        "size": 4941,
+        "mode": 420
+      },
+      {
+        "path": "src/oauth/xai.ts",
+        "size": 15671,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/account-quota-disk.ts",
+        "size": 3283,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/alibaba-region-backup.ts",
+        "size": 3196,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/alibaba-region-migration.ts",
+        "size": 7494,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/alibaba-region-startup.ts",
+        "size": 1402,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/antigravity-models.ts",
+        "size": 33029,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/api-key-selection-capture.ts",
+        "size": 403,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/api-key-selection.ts",
+        "size": 5119,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/api-keys.ts",
+        "size": 6888,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/auto-compact-budget.ts",
+        "size": 2719,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/base-url-choices.ts",
+        "size": 3306,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/caller-authorization.ts",
+        "size": 2309,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/codebuddy-models.ts",
+        "size": 5403,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/codex-capacity.ts",
+        "size": 12865,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/command-code-efforts.ts",
+        "size": 10863,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/context-cap.ts",
+        "size": 5148,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/cursor-pool.ts",
+        "size": 2461,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/default-aliases.ts",
+        "size": 4417,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/derive.ts",
+        "size": 37230,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/devin-cli-authmode-migration.ts",
+        "size": 3568,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/devin-provider-merge-migration.ts",
+        "size": 10114,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/fastwire.ts",
+        "size": 22214,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/free-directory.ts",
+        "size": 21305,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/github-copilot-transport.ts",
+        "size": 1930,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/google-ai-studio-model-discovery.ts",
+        "size": 2606,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/google-vertex-location.ts",
+        "size": 683,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/initial-model-selection-runtime.ts",
+        "size": 4894,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/initial-model-selection.ts",
+        "size": 5609,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/key-failover.ts",
+        "size": 24653,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/key-store.ts",
+        "size": 10661,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/kiro-models.ts",
+        "size": 2292,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/kiro-usage.ts",
+        "size": 10389,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/label.ts",
+        "size": 2806,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/model-discovery-limits.ts",
+        "size": 780,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/model-discovery.ts",
+        "size": 22437,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/model-presets.ts",
+        "size": 4361,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/model-rename-migration.ts",
+        "size": 10940,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/model-rename-startup.ts",
+        "size": 4761,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/muse-key-quota.ts",
+        "size": 4796,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/muse-subscription-usage.ts",
+        "size": 4525,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/new-model-policy.ts",
+        "size": 6036,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/ollama-show.ts",
+        "size": 13950,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/openai-sidecar.ts",
+        "size": 12801,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/openai-tier-startup.ts",
+        "size": 1772,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/openai-tiers-destination.ts",
+        "size": 4566,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/openai-tiers.ts",
+        "size": 14657,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/openai-virtual-models.ts",
+        "size": 3300,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/opencode-go-transport.ts",
+        "size": 1859,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/opencode-go.ts",
+        "size": 1352,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/opencode-zen-rate-limit.ts",
+        "size": 10748,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/openrouter-routing.ts",
+        "size": 4131,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/provider-id-rewrite.ts",
+        "size": 8330,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/qoder-models.ts",
+        "size": 665,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/quota-key-accounts.ts",
+        "size": 8089,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/quota-routing-cache.ts",
+        "size": 3772,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/quota-types.ts",
+        "size": 2221,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/quota-wire.ts",
+        "size": 4198,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/quota.ts",
+        "size": 27775,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/quota/account-cache.ts",
+        "size": 20523,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/quota/antigravity.ts",
+        "size": 14111,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/quota/report-cache.ts",
+        "size": 14316,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/quota/vendor-probes-key.ts",
+        "size": 58210,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/quota/vendor-probes-oauth.ts",
+        "size": 26476,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/reasoning-metadata.ts",
+        "size": 24739,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/registry.ts",
+        "size": 10921,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/registry/entries-core.ts",
+        "size": 75216,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/registry/entries-extended.ts",
+        "size": 70030,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/registry/model-seeds.ts",
+        "size": 46449,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/registry/types.ts",
+        "size": 16364,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/request-pacing.ts",
+        "size": 11025,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/service-tier.ts",
+        "size": 10704,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/slug-codec.ts",
+        "size": 7856,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/stale-context-window-migration.ts",
+        "size": 4110,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/static-model-discovery.ts",
+        "size": 3550,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/vercel-gateway-routing.ts",
+        "size": 4406,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/xai-responses-opt-in.ts",
+        "size": 1993,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/xai-transport.ts",
+        "size": 6530,
+        "mode": 420
+      },
+      {
+        "path": "src/providers/zai-responses-migration.ts",
+        "size": 2404,
+        "mode": 420
+      },
+      {
+        "path": "src/quota/reset-activation.ts",
+        "size": 3150,
+        "mode": 420
+      },
+      {
+        "path": "src/quota/reset-detector.ts",
+        "size": 13960,
+        "mode": 420
+      },
+      {
+        "path": "src/quota/reset-notify-config.ts",
+        "size": 5675,
+        "mode": 420
+      },
+      {
+        "path": "src/quota/reset-observer.ts",
+        "size": 4446,
+        "mode": 420
+      },
+      {
+        "path": "src/quota/reset-poller.ts",
+        "size": 6631,
+        "mode": 420
+      },
+      {
+        "path": "src/quota/reset-seen-store.ts",
+        "size": 16456,
+        "mode": 420
+      },
+      {
+        "path": "src/quota/reset-sinks.ts",
+        "size": 8540,
+        "mode": 420
+      },
+      {
+        "path": "src/quota/window-mapping.ts",
+        "size": 4124,
+        "mode": 420
+      },
+      {
+        "path": "src/reasoning-effort.ts",
+        "size": 13084,
+        "mode": 420
+      },
+      {
+        "path": "src/remote-control/crypto.ts",
+        "size": 17970,
+        "mode": 420
+      },
+      {
+        "path": "src/remote-control/host.ts",
+        "size": 6537,
+        "mode": 420
+      },
+      {
+        "path": "src/remote-control/index.ts",
+        "size": 7512,
+        "mode": 420
+      },
+      {
+        "path": "src/remote-control/protocol.ts",
+        "size": 8146,
+        "mode": 420
+      },
+      {
+        "path": "src/remote-control/relay.ts",
+        "size": 6345,
+        "mode": 420
+      },
+      {
+        "path": "src/remote-control/workspace-activation.ts",
+        "size": 347,
+        "mode": 420
+      },
+      {
+        "path": "src/remote-control/workspace-agent-connection.ts",
+        "size": 15097,
+        "mode": 420
+      },
+      {
+        "path": "src/remote-control/workspace-agent-protocol.ts",
+        "size": 10033,
+        "mode": 420
+      },
+      {
+        "path": "src/remote-control/workspace-claude-runtime.ts",
+        "size": 9103,
+        "mode": 420
+      },
+      {
+        "path": "src/remote-control/workspace-codex-runtime.ts",
+        "size": 21338,
+        "mode": 420
+      },
+      {
+        "path": "src/remote-control/workspace-codex-sandbox.ts",
+        "size": 4541,
+        "mode": 420
+      },
+      {
+        "path": "src/remote-control/workspace-command-runner.ts",
+        "size": 28706,
+        "mode": 420
+      },
+      {
+        "path": "src/remote-control/workspace-coordinator.ts",
+        "size": 8808,
+        "mode": 420
+      },
+      {
+        "path": "src/remote-control/workspace-device.ts",
+        "size": 24310,
+        "mode": 420
+      },
+      {
+        "path": "src/remote-control/workspace-executable.ts",
+        "size": 1698,
+        "mode": 420
+      },
+      {
+        "path": "src/remote-control/workspace-executor.ts",
+        "size": 16831,
+        "mode": 420
+      },
+      {
+        "path": "src/remote-control/workspace-hub.ts",
+        "size": 20609,
+        "mode": 420
+      },
+      {
+        "path": "src/remote-control/workspace-pi-runtime.ts",
+        "size": 14008,
+        "mode": 420
+      },
+      {
+        "path": "src/remote-control/workspace-process.ts",
+        "size": 5300,
+        "mode": 420
+      },
+      {
+        "path": "src/remote-control/workspace-rpc-framing.ts",
+        "size": 5274,
+        "mode": 420
+      },
+      {
+        "path": "src/remote-control/workspace-rpc.ts",
+        "size": 12434,
+        "mode": 420
+      },
+      {
+        "path": "src/remote-control/workspace-runtime.ts",
+        "size": 2085,
+        "mode": 420
+      },
+      {
+        "path": "src/remote-control/workspace-secret-store.ts",
+        "size": 1537,
+        "mode": 420
+      },
+      {
+        "path": "src/remote-control/workspace-sessions.ts",
+        "size": 33902,
+        "mode": 420
+      },
+      {
+        "path": "src/remote-control/workspace-tool-bridge.ts",
+        "size": 7456,
+        "mode": 420
+      },
+      {
+        "path": "src/remote-control/workspace-tools.ts",
+        "size": 8627,
+        "mode": 420
+      },
+      {
+        "path": "src/remote-control/workspace-utf8.ts",
+        "size": 843,
+        "mode": 420
+      },
+      {
+        "path": "src/remote/hub-state.ts",
+        "size": 8985,
+        "mode": 420
+      },
+      {
+        "path": "src/remote/hub-usage.ts",
+        "size": 1698,
+        "mode": 420
+      },
+      {
+        "path": "src/remote/protocol.ts",
+        "size": 4337,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/apply-patch-envelope.ts",
+        "size": 5136,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/citation-markers.ts",
+        "size": 6272,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/code-mode-helper-compat.ts",
+        "size": 4842,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/compaction.ts",
+        "size": 10465,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/continuation-ownership.ts",
+        "size": 1746,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/custom-tool-compat.ts",
+        "size": 15139,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/function-call-compat.ts",
+        "size": 8787,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/hosted-tool-policy.ts",
+        "size": 731,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/input-media.ts",
+        "size": 2809,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/muse-tool-name-alias.ts",
+        "size": 13703,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/namespace-tool-compat.ts",
+        "size": 19579,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/parser-content.ts",
+        "size": 9151,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/parser-text-format.ts",
+        "size": 1222,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/parser-tools.ts",
+        "size": 9552,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/parser.ts",
+        "size": 29091,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/plaintext-v2-agent-messages.ts",
+        "size": 32252,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/provider-continuation.ts",
+        "size": 3693,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/provider-opaque-metadata.ts",
+        "size": 3567,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/reasoning-envelope.ts",
+        "size": 4474,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/reasoning-replay-cache.ts",
+        "size": 19106,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/schema.ts",
+        "size": 7648,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/spill-store.ts",
+        "size": 29188,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/state.ts",
+        "size": 60803,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/state/replay-fingerprint.ts",
+        "size": 3597,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/state/snapshot-codec.ts",
+        "size": 4397,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/state/spill-failure.ts",
+        "size": 4334,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/state/spill-queue.ts",
+        "size": 29305,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/state/temp-recovery.ts",
+        "size": 11680,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/task-input.ts",
+        "size": 2846,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/thought-signature-replay.ts",
+        "size": 14578,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/tool-groups.ts",
+        "size": 686,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/tool-name-aliases.ts",
+        "size": 3376,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/tool-search-compat.ts",
+        "size": 10888,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/truncated-stop-reason.ts",
+        "size": 2955,
+        "mode": 420
+      },
+      {
+        "path": "src/responses/turn-termination.ts",
+        "size": 4694,
+        "mode": 420
+      },
+      {
+        "path": "src/router.ts",
+        "size": 46256,
+        "mode": 420
+      },
+      {
+        "path": "src/routing/analytics.ts",
+        "size": 12946,
+        "mode": 420
+      },
+      {
+        "path": "src/routing/capability.ts",
+        "size": 12675,
+        "mode": 420
+      },
+      {
+        "path": "src/routing/compatibility/assemble.ts",
+        "size": 3841,
+        "mode": 420
+      },
+      {
+        "path": "src/routing/compatibility/behavior.ts",
+        "size": 14163,
+        "mode": 420
+      },
+      {
+        "path": "src/routing/compatibility/catalog.ts",
+        "size": 3181,
+        "mode": 420
+      },
+      {
+        "path": "src/routing/compatibility/endpoint.ts",
+        "size": 1774,
+        "mode": 420
+      },
+      {
+        "path": "src/routing/compatibility/lab-evidence-provider.ts",
+        "size": 5063,
+        "mode": 420
+      },
+      {
+        "path": "src/routing/compatibility/policy.ts",
+        "size": 7016,
+        "mode": 420
+      },
+      {
+        "path": "src/routing/compatibility/provider-slot.ts",
+        "size": 2270,
+        "mode": 420
+      },
+      {
+        "path": "src/routing/compatibility/reader.ts",
+        "size": 3653,
+        "mode": 420
+      },
+      {
+        "path": "src/routing/compatibility/subject.ts",
+        "size": 6305,
+        "mode": 420
+      },
+      {
+        "path": "src/routing/compatibility/types.ts",
+        "size": 2190,
+        "mode": 420
+      },
+      {
+        "path": "src/routing/compatibility/version.ts",
+        "size": 4084,
+        "mode": 420
+      },
+      {
+        "path": "src/routing/cost.ts",
+        "size": 2741,
+        "mode": 420
+      },
+      {
+        "path": "src/routing/evaluator.ts",
+        "size": 20348,
+        "mode": 420
+      },
+      {
+        "path": "src/routing/health.ts",
+        "size": 16891,
+        "mode": 420
+      },
+      {
+        "path": "src/routing/history/cursor.ts",
+        "size": 1432,
+        "mode": 420
+      },
+      {
+        "path": "src/routing/history/indexer.ts",
+        "size": 22126,
+        "mode": 420
+      },
+      {
+        "path": "src/routing/history/schema.ts",
+        "size": 2458,
+        "mode": 420
+      },
+      {
+        "path": "src/routing/identity-domains.ts",
+        "size": 20259,
+        "mode": 420
+      },
+      {
+        "path": "src/routing/probe-lease.ts",
+        "size": 21110,
+        "mode": 420
+      },
+      {
+        "path": "src/routing/profile-namespace.ts",
+        "size": 657,
+        "mode": 420
+      },
+      {
+        "path": "src/routing/profile.ts",
+        "size": 22743,
+        "mode": 420
+      },
+      {
+        "path": "src/routing/quota.ts",
+        "size": 6796,
+        "mode": 420
+      },
+      {
+        "path": "src/routing/request-evidence.ts",
+        "size": 2044,
+        "mode": 420
+      },
+      {
+        "path": "src/routing/trace.ts",
+        "size": 30925,
+        "mode": 420
+      },
+      {
+        "path": "src/server/adapter-resolve.ts",
+        "size": 2854,
+        "mode": 420
+      },
+      {
+        "path": "src/server/audio-client.ts",
+        "size": 3662,
+        "mode": 420
+      },
+      {
+        "path": "src/server/audio-dictation.ts",
+        "size": 4921,
+        "mode": 420
+      },
+      {
+        "path": "src/server/audio-live.ts",
+        "size": 10991,
+        "mode": 420
+      },
+      {
+        "path": "src/server/audio-transcriptions.ts",
+        "size": 9279,
+        "mode": 420
+      },
+      {
+        "path": "src/server/audio-upstream.ts",
+        "size": 6651,
+        "mode": 420
+      },
+      {
+        "path": "src/server/auth-cors.ts",
+        "size": 57776,
+        "mode": 420
+      },
+      {
+        "path": "src/server/background-lifecycle.ts",
+        "size": 7593,
+        "mode": 420
+      },
+      {
+        "path": "src/server/catalog-download.ts",
+        "size": 3277,
+        "mode": 420
+      },
+      {
+        "path": "src/server/chat-completions.ts",
+        "size": 25091,
+        "mode": 420
+      },
+      {
+        "path": "src/server/chat-native-sse.ts",
+        "size": 16385,
+        "mode": 420
+      },
+      {
+        "path": "src/server/chat-native.ts",
+        "size": 27410,
+        "mode": 420
+      },
+      {
+        "path": "src/server/claude-messages.ts",
+        "size": 56956,
+        "mode": 420
+      },
+      {
+        "path": "src/server/context-history.ts",
+        "size": 12836,
+        "mode": 420
+      },
+      {
+        "path": "src/server/direct-local-http.ts",
+        "size": 14333,
+        "mode": 420
+      },
+      {
+        "path": "src/server/effort-policy.ts",
+        "size": 17559,
+        "mode": 420
+      },
+      {
+        "path": "src/server/effort-row.ts",
+        "size": 5042,
+        "mode": 420
+      },
+      {
+        "path": "src/server/fast-row.ts",
+        "size": 14288,
+        "mode": 420
+      },
+      {
+        "path": "src/server/github-copilot-responses-repair.ts",
+        "size": 12357,
+        "mode": 420
+      },
+      {
+        "path": "src/server/grok-responses-control-frame.ts",
+        "size": 1593,
+        "mode": 420
+      },
+      {
+        "path": "src/server/grok-responses-snapshot-repair.ts",
+        "size": 12775,
+        "mode": 420
+      },
+      {
+        "path": "src/server/gui-session.ts",
+        "size": 16741,
+        "mode": 420
+      },
+      {
+        "path": "src/server/gui-static.ts",
+        "size": 7239,
+        "mode": 420
+      },
+      {
+        "path": "src/server/hub-state.ts",
+        "size": 4624,
+        "mode": 420
+      },
+      {
+        "path": "src/server/hub-usage.ts",
+        "size": 3792,
+        "mode": 420
+      },
+      {
+        "path": "src/server/image-retry.ts",
+        "size": 1709,
+        "mode": 420
+      },
+      {
+        "path": "src/server/images.ts",
+        "size": 37598,
+        "mode": 420
+      },
+      {
+        "path": "src/server/index.ts",
+        "size": 43883,
+        "mode": 420
+      },
+      {
+        "path": "src/server/index/bounded-request.ts",
+        "size": 3353,
+        "mode": 420
+      },
+      {
+        "path": "src/server/index/live-sideband.ts",
+        "size": 23192,
+        "mode": 420
+      },
+      {
+        "path": "src/server/index/serve-options.ts",
+        "size": 91411,
+        "mode": 420
+      },
+      {
+        "path": "src/server/index/startup-warnings.ts",
+        "size": 9662,
+        "mode": 420
+      },
+      {
+        "path": "src/server/index/websocket-handler.ts",
+        "size": 12854,
+        "mode": 420
+      },
+      {
+        "path": "src/server/lifecycle.ts",
+        "size": 21749,
+        "mode": 420
+      },
+      {
+        "path": "src/server/live-call-bindings.ts",
+        "size": 2116,
+        "mode": 420
+      },
+      {
+        "path": "src/server/live.ts",
+        "size": 29503,
+        "mode": 420
+      },
+      {
+        "path": "src/server/local-management-read-client.ts",
+        "size": 3200,
+        "mode": 420
+      },
+      {
+        "path": "src/server/local-provider-reload-client.ts",
+        "size": 5047,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management-api.ts",
+        "size": 23980,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management-auth.ts",
+        "size": 20037,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/account-selection-stream.ts",
+        "size": 3777,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/agent-settings-routes.ts",
+        "size": 85995,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/api-access.ts",
+        "size": 7373,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/api-key-rotation.ts",
+        "size": 2671,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/api-key-usage.ts",
+        "size": 9620,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/aside-profile-routes.ts",
+        "size": 12525,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/body.ts",
+        "size": 1308,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/codex-prompt-routes.ts",
+        "size": 26390,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/combo-routes.ts",
+        "size": 14138,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/config-routes.ts",
+        "size": 53404,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/context.ts",
+        "size": 8159,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/cursor-integration-routes.ts",
+        "size": 7061,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/grok-coupon-routes.ts",
+        "size": 8068,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/integration-routes.ts",
+        "size": 29686,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/lab-automation-routes.ts",
+        "size": 9077,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/lab-routes.ts",
+        "size": 20894,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/logs-usage-routes.ts",
+        "size": 26832,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/model-routes.ts",
+        "size": 55101,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/model-rows.ts",
+        "size": 12264,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/native-integration-routes.ts",
+        "size": 34733,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/oauth-account-routes.ts",
+        "size": 54523,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/provider-capability-config.ts",
+        "size": 2391,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/provider-routes.ts",
+        "size": 94309,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/quota-reset-routes.ts",
+        "size": 2142,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/remote-workspace-routes.ts",
+        "size": 6606,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/request-history-routes.ts",
+        "size": 8960,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/route-registry.ts",
+        "size": 46083,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/routing-analytics-routes.ts",
+        "size": 2623,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/routing-profile-routes.ts",
+        "size": 18153,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/session-routes.ts",
+        "size": 609,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/shadow-call-validation.ts",
+        "size": 1245,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/shared.ts",
+        "size": 19915,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/sidebar-routes.ts",
+        "size": 5576,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/storage-log-guard-routes.ts",
+        "size": 6394,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/sync-response.ts",
+        "size": 2135,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/system-restart.ts",
+        "size": 16702,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/system-routes.ts",
+        "size": 8529,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/usage-aggregate-cache.ts",
+        "size": 16695,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/usage-summary-cache.ts",
+        "size": 3388,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/vision-sidecar-options.ts",
+        "size": 8104,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/web-search-sidecar-options.ts",
+        "size": 5267,
+        "mode": 420
+      },
+      {
+        "path": "src/server/management/workflow-budget-routes.ts",
+        "size": 4698,
+        "mode": 420
+      },
+      {
+        "path": "src/server/memory-watchdog.ts",
+        "size": 5536,
+        "mode": 420
+      },
+      {
+        "path": "src/server/models-capabilities.ts",
+        "size": 8802,
+        "mode": 420
+      },
+      {
+        "path": "src/server/passive-route-linker.ts",
+        "size": 2217,
+        "mode": 420
+      },
+      {
+        "path": "src/server/port-reclaim.ts",
+        "size": 11716,
+        "mode": 420
+      },
+      {
+        "path": "src/server/ports.ts",
+        "size": 7520,
+        "mode": 420
+      },
+      {
+        "path": "src/server/proxy-liveness.ts",
+        "size": 16261,
+        "mode": 420
+      },
+      {
+        "path": "src/server/readiness.ts",
+        "size": 3641,
+        "mode": 420
+      },
+      {
+        "path": "src/server/relay-eager.ts",
+        "size": 23239,
+        "mode": 420
+      },
+      {
+        "path": "src/server/relay.ts",
+        "size": 57544,
+        "mode": 420
+      },
+      {
+        "path": "src/server/request-decompress.ts",
+        "size": 15324,
+        "mode": 420
+      },
+      {
+        "path": "src/server/request-log-conversation.ts",
+        "size": 10514,
+        "mode": 420
+      },
+      {
+        "path": "src/server/request-log-cursor.ts",
+        "size": 3449,
+        "mode": 420
+      },
+      {
+        "path": "src/server/request-log.ts",
+        "size": 76206,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses-custom-tool-repair.ts",
+        "size": 17242,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses-function-tool-repair.ts",
+        "size": 8643,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses-image-gen-repair.ts",
+        "size": 4973,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses-item-id-repair.ts",
+        "size": 12342,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses-json-events.ts",
+        "size": 3400,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses-model-rewrite.ts",
+        "size": 1299,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses-self-named-namespace-scrub.ts",
+        "size": 7043,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses-snapshot-codec.ts",
+        "size": 436,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses-snapshot-repair.ts",
+        "size": 25383,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses-terminal-repair.ts",
+        "size": 12873,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses-tool-search-repair.ts",
+        "size": 10865,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses-undeclared-tool-guard.ts",
+        "size": 28710,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses.ts",
+        "size": 1713,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/account-change-state.ts",
+        "size": 9144,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/adapter-continuation.ts",
+        "size": 24324,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/adapter-delivery.ts",
+        "size": 9354,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/adapter-dispatch.ts",
+        "size": 47635,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/agent-task-recovery-cache.ts",
+        "size": 6874,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/agent-task-recovery.ts",
+        "size": 21391,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/codex-auth-error.ts",
+        "size": 4844,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/codex-ws-correlation.ts",
+        "size": 2844,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/codex-ws-exchange.ts",
+        "size": 22176,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/codex-ws-metadata.ts",
+        "size": 5908,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/codex-ws-pool.ts",
+        "size": 7765,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/codex-ws-request.ts",
+        "size": 3872,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/codex-ws-session.ts",
+        "size": 3595,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/codex-ws-wire.ts",
+        "size": 15983,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/collaboration.ts",
+        "size": 30572,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/combo-session-recall.ts",
+        "size": 3361,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/combo-stream-preflight.ts",
+        "size": 8719,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/compact.ts",
+        "size": 68805,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/completion-policy.ts",
+        "size": 1692,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/context-overflow.ts",
+        "size": 2081,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/core-auth.ts",
+        "size": 25371,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/core-codex-account.ts",
+        "size": 38765,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/core-combo-failure.ts",
+        "size": 8312,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/core-combo.ts",
+        "size": 29925,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/core-errors.ts",
+        "size": 5978,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/core-lifetime.ts",
+        "size": 3179,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/core-normalize.ts",
+        "size": 16216,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/core-opaque-recovery.ts",
+        "size": 15149,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/core-options.ts",
+        "size": 8647,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/core-replay.ts",
+        "size": 9041,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/core.ts",
+        "size": 8975,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/empty-completion-guard.ts",
+        "size": 14787,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/encrypted-payload.ts",
+        "size": 23806,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/fetch-helpers.ts",
+        "size": 8485,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/input-admission.ts",
+        "size": 9477,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/native-compaction-portability.ts",
+        "size": 6916,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/outbound-body-guard.ts",
+        "size": 4475,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/pacing-overload.ts",
+        "size": 527,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/passthrough-delivery.ts",
+        "size": 49114,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/passthrough-dispatch.ts",
+        "size": 76358,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/passthrough-error.ts",
+        "size": 4090,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/passthrough-execution.ts",
+        "size": 2027,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/policy-fallback.ts",
+        "size": 8099,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/request-prepare.ts",
+        "size": 50094,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/request-send-budget.ts",
+        "size": 8994,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/request-sidecar-auth.ts",
+        "size": 7011,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/request-transport.ts",
+        "size": 39231,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/response-effects.ts",
+        "size": 8188,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/responses-field-backfill.ts",
+        "size": 15901,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/run-turn-execution.ts",
+        "size": 20380,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/sidecar-execution.ts",
+        "size": 22323,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/terminal-guard.ts",
+        "size": 12862,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/upstream-error.ts",
+        "size": 2795,
+        "mode": 420
+      },
+      {
+        "path": "src/server/responses/ws-upstream.ts",
+        "size": 8201,
+        "mode": 420
+      },
+      {
+        "path": "src/server/safe-response-headers.ts",
+        "size": 1085,
+        "mode": 420
+      },
+      {
+        "path": "src/server/search.ts",
+        "size": 9994,
+        "mode": 420
+      },
+      {
+        "path": "src/server/sse-frame-buffer.ts",
+        "size": 11157,
+        "mode": 420
+      },
+      {
+        "path": "src/server/sse-payload-rewrite.ts",
+        "size": 12378,
+        "mode": 420
+      },
+      {
+        "path": "src/server/startup-action-control.ts",
+        "size": 11609,
+        "mode": 420
+      },
+      {
+        "path": "src/server/startup-health-cache.ts",
+        "size": 8245,
+        "mode": 420
+      },
+      {
+        "path": "src/server/stop-teardown.ts",
+        "size": 3742,
+        "mode": 420
+      },
+      {
+        "path": "src/server/subagent-models-startup.ts",
+        "size": 1260,
+        "mode": 420
+      },
+      {
+        "path": "src/server/system-env-shell.ts",
+        "size": 12537,
+        "mode": 420
+      },
+      {
+        "path": "src/server/system-env.ts",
+        "size": 18863,
+        "mode": 420
+      },
+      {
+        "path": "src/server/windows-tcp-drop.ts",
+        "size": 6507,
+        "mode": 420
+      },
+      {
+        "path": "src/server/windows-tray-control.ts",
+        "size": 1700,
+        "mode": 420
+      },
+      {
+        "path": "src/server/workflow-refusal.ts",
+        "size": 3918,
+        "mode": 420
+      },
+      {
+        "path": "src/server/ws-bridge.ts",
+        "size": 17299,
+        "mode": 420
+      },
+      {
+        "path": "src/server/xai-responses-startup.ts",
+        "size": 989,
+        "mode": 420
+      },
+      {
+        "path": "src/server/zai-responses-startup.ts",
+        "size": 997,
+        "mode": 420
+      },
+      {
+        "path": "src/service-manager-probe.ts",
+        "size": 40506,
+        "mode": 420
+      },
+      {
+        "path": "src/service.ts",
+        "size": 5087,
+        "mode": 420
+      },
+      {
+        "path": "src/service/cli.ts",
+        "size": 17329,
+        "mode": 420
+      },
+      {
+        "path": "src/service/diagnostics.ts",
+        "size": 16366,
+        "mode": 420
+      },
+      {
+        "path": "src/service/guards.ts",
+        "size": 16717,
+        "mode": 420
+      },
+      {
+        "path": "src/service/health.ts",
+        "size": 10102,
+        "mode": 420
+      },
+      {
+        "path": "src/service/launchd.ts",
+        "size": 45078,
+        "mode": 420
+      },
+      {
+        "path": "src/service/orchestration.ts",
+        "size": 29415,
+        "mode": 420
+      },
+      {
+        "path": "src/service/repair.ts",
+        "size": 16457,
+        "mode": 420
+      },
+      {
+        "path": "src/service/state.ts",
+        "size": 17034,
+        "mode": 420
+      },
+      {
+        "path": "src/service/systemd.ts",
+        "size": 10096,
+        "mode": 420
+      },
+      {
+        "path": "src/service/windows-ops.ts",
+        "size": 29771,
+        "mode": 420
+      },
+      {
+        "path": "src/service/windows-scheduler.ts",
+        "size": 32221,
+        "mode": 420
+      },
+      {
+        "path": "src/service/windows-taskxml.ts",
+        "size": 29452,
+        "mode": 420
+      },
+      {
+        "path": "src/sidecar/auth.ts",
+        "size": 4252,
+        "mode": 420
+      },
+      {
+        "path": "src/sidecar/candidates.ts",
+        "size": 3385,
+        "mode": 420
+      },
+      {
+        "path": "src/stall-timeout.ts",
+        "size": 790,
+        "mode": 420
+      },
+      {
+        "path": "src/storage/cleanup-job.ts",
+        "size": 1785,
+        "mode": 420
+      },
+      {
+        "path": "src/storage/cleanup.ts",
+        "size": 2093,
+        "mode": 420
+      },
+      {
+        "path": "src/storage/cleanup/db.ts",
+        "size": 8290,
+        "mode": 420
+      },
+      {
+        "path": "src/storage/cleanup/execute.ts",
+        "size": 13737,
+        "mode": 420
+      },
+      {
+        "path": "src/storage/cleanup/paths.ts",
+        "size": 6672,
+        "mode": 420
+      },
+      {
+        "path": "src/storage/cleanup/pending.ts",
+        "size": 4561,
+        "mode": 420
+      },
+      {
+        "path": "src/storage/cleanup/preview.ts",
+        "size": 10432,
+        "mode": 420
+      },
+      {
+        "path": "src/storage/cleanup/reconcile.ts",
+        "size": 14004,
+        "mode": 420
+      },
+      {
+        "path": "src/storage/cleanup/restore.ts",
+        "size": 34022,
+        "mode": 420
+      },
+      {
+        "path": "src/storage/cleanup/satellite.ts",
+        "size": 16882,
+        "mode": 420
+      },
+      {
+        "path": "src/storage/cleanup/staging.ts",
+        "size": 4104,
+        "mode": 420
+      },
+      {
+        "path": "src/storage/cleanup/types.ts",
+        "size": 2591,
+        "mode": 420
+      },
+      {
+        "path": "src/storage/policy-job.ts",
+        "size": 15642,
+        "mode": 420
+      },
+      {
+        "path": "src/storage/policy-scheduler.ts",
+        "size": 1221,
+        "mode": 420
+      },
+      {
+        "path": "src/storage/policy-worker.ts",
+        "size": 2164,
+        "mode": 420
+      },
+      {
+        "path": "src/storage/policy.ts",
+        "size": 21029,
+        "mode": 420
+      },
+      {
+        "path": "src/storage/restore-job.ts",
+        "size": 10116,
+        "mode": 420
+      },
+      {
+        "path": "src/storage/restore-worker.ts",
+        "size": 2152,
+        "mode": 420
+      },
+      {
+        "path": "src/storage/scanner.ts",
+        "size": 8150,
+        "mode": 420
+      },
+      {
+        "path": "src/storage/storage-mutation-coordinator.ts",
+        "size": 4812,
+        "mode": 420
+      },
+      {
+        "path": "src/storage/worker-lifecycle.ts",
+        "size": 7408,
+        "mode": 420
+      },
+      {
+        "path": "src/tray/assets/opencodex-tray-offline.ico",
+        "size": 82051,
+        "mode": 420
+      },
+      {
+        "path": "src/tray/assets/opencodex-tray-online.ico",
+        "size": 95137,
+        "mode": 420
+      },
+      {
+        "path": "src/tray/assets/opencodex-tray-warning.ico",
+        "size": 94883,
+        "mode": 420
+      },
+      {
+        "path": "src/tray/assets/opencodex-tray.png",
+        "size": 173274,
+        "mode": 420
+      },
+      {
+        "path": "src/tray/windows-tray.ps1",
+        "size": 15750,
+        "mode": 420
+      },
+      {
+        "path": "src/tray/windows.ts",
+        "size": 31689,
+        "mode": 420
+      },
+      {
+        "path": "src/types.ts",
+        "size": 3103,
+        "mode": 420
+      },
+      {
+        "path": "src/types/accounts.ts",
+        "size": 2425,
+        "mode": 420
+      },
+      {
+        "path": "src/types/config.ts",
+        "size": 67826,
+        "mode": 420
+      },
+      {
+        "path": "src/types/provider.ts",
+        "size": 49376,
+        "mode": 420
+      },
+      {
+        "path": "src/types/request.ts",
+        "size": 18111,
+        "mode": 420
+      },
+      {
+        "path": "src/types/tools.ts",
+        "size": 14448,
+        "mode": 420
+      },
+      {
+        "path": "src/types/wire.ts",
+        "size": 3180,
+        "mode": 420
+      },
+      {
+        "path": "src/update/badge.ts",
+        "size": 2716,
+        "mode": 420
+      },
+      {
+        "path": "src/update/codex-cli-update-launch-policy.d.mts",
+        "size": 396,
+        "mode": 420
+      },
+      {
+        "path": "src/update/codex-cli-update-launch-policy.mjs",
+        "size": 1021,
+        "mode": 420
+      },
+      {
+        "path": "src/update/index.ts",
+        "size": 30640,
+        "mode": 420
+      },
+      {
+        "path": "src/update/install-detection.d.mts",
+        "size": 242,
+        "mode": 420
+      },
+      {
+        "path": "src/update/install-detection.mjs",
+        "size": 3549,
+        "mode": 420
+      },
+      {
+        "path": "src/update/job.ts",
+        "size": 87997,
+        "mode": 420
+      },
+      {
+        "path": "src/update/notify.ts",
+        "size": 9356,
+        "mode": 420
+      },
+      {
+        "path": "src/update/npm-cache-preflight.d.mts",
+        "size": 1388,
+        "mode": 420
+      },
+      {
+        "path": "src/update/npm-cache-preflight.mjs",
+        "size": 8498,
+        "mode": 420
+      },
+      {
+        "path": "src/update/npm-invocation.d.mts",
+        "size": 572,
+        "mode": 420
+      },
+      {
+        "path": "src/update/npm-invocation.mjs",
+        "size": 3102,
+        "mode": 420
+      },
+      {
+        "path": "src/update/pnpm-global-install.d.mts",
+        "size": 3974,
+        "mode": 420
+      },
+      {
+        "path": "src/update/pnpm-global-install.mjs",
+        "size": 23175,
+        "mode": 420
+      },
+      {
+        "path": "src/update/pnpm-invocation.d.mts",
+        "size": 1125,
+        "mode": 420
+      },
+      {
+        "path": "src/update/pnpm-invocation.mjs",
+        "size": 4180,
+        "mode": 420
+      },
+      {
+        "path": "src/update/proxy-liveness-probe.d.mts",
+        "size": 214,
+        "mode": 420
+      },
+      {
+        "path": "src/update/proxy-liveness-probe.mjs",
+        "size": 4860,
+        "mode": 420
+      },
+      {
+        "path": "src/update/registry-integrity.d.mts",
+        "size": 517,
+        "mode": 420
+      },
+      {
+        "path": "src/update/registry-integrity.mjs",
+        "size": 1637,
+        "mode": 420
+      },
+      {
+        "path": "src/update/stop-contract.d.mts",
+        "size": 138,
+        "mode": 420
+      },
+      {
+        "path": "src/update/stop-contract.mjs",
+        "size": 913,
+        "mode": 420
+      },
+      {
+        "path": "src/update/stop-decision.d.mts",
+        "size": 418,
+        "mode": 420
+      },
+      {
+        "path": "src/update/stop-decision.mjs",
+        "size": 2144,
+        "mode": 420
+      },
+      {
+        "path": "src/update/transactional-install.d.mts",
+        "size": 972,
+        "mode": 420
+      },
+      {
+        "path": "src/update/transactional-install.mjs",
+        "size": 17592,
+        "mode": 420
+      },
+      {
+        "path": "src/update/tray-update-plan.d.mts",
+        "size": 678,
+        "mode": 420
+      },
+      {
+        "path": "src/update/tray-update-plan.mjs",
+        "size": 1252,
+        "mode": 420
+      },
+      {
+        "path": "src/usage/cost.ts",
+        "size": 27793,
+        "mode": 420
+      },
+      {
+        "path": "src/usage/debug.ts",
+        "size": 3587,
+        "mode": 420
+      },
+      {
+        "path": "src/usage/expected-prices.ts",
+        "size": 50915,
+        "mode": 420
+      },
+      {
+        "path": "src/usage/ledger-scanner.ts",
+        "size": 15791,
+        "mode": 420
+      },
+      {
+        "path": "src/usage/log.ts",
+        "size": 73768,
+        "mode": 420
+      },
+      {
+        "path": "src/usage/model-identity.ts",
+        "size": 1235,
+        "mode": 420
+      },
+      {
+        "path": "src/usage/summary.ts",
+        "size": 68521,
+        "mode": 420
+      },
+      {
+        "path": "src/usage/time-range.ts",
+        "size": 2279,
+        "mode": 420
+      },
+      {
+        "path": "src/usage/totals.ts",
+        "size": 752,
+        "mode": 420
+      },
+      {
+        "path": "src/usage/user-cost-overlay-reconciler.ts",
+        "size": 12688,
+        "mode": 420
+      },
+      {
+        "path": "src/usage/user-cost-overlays.ts",
+        "size": 15127,
+        "mode": 420
+      },
+      {
+        "path": "src/vision/anthropic-describe.ts",
+        "size": 10643,
+        "mode": 420
+      },
+      {
+        "path": "src/vision/backends.ts",
+        "size": 4525,
+        "mode": 420
+      },
+      {
+        "path": "src/vision/describe.ts",
+        "size": 7047,
+        "mode": 420
+      },
+      {
+        "path": "src/vision/eligibility.ts",
+        "size": 15208,
+        "mode": 420
+      },
+      {
+        "path": "src/vision/image-rewrite.ts",
+        "size": 4742,
+        "mode": 420
+      },
+      {
+        "path": "src/vision/index.ts",
+        "size": 13407,
+        "mode": 420
+      },
+      {
+        "path": "src/vision/plan.ts",
+        "size": 11816,
+        "mode": 420
+      },
+      {
+        "path": "src/vision/reasoning.ts",
+        "size": 2146,
+        "mode": 420
+      },
+      {
+        "path": "src/vision/routed-describe.ts",
+        "size": 9320,
+        "mode": 420
+      },
+      {
+        "path": "src/vision/timeout-bounds.ts",
+        "size": 428,
+        "mode": 420
+      },
+      {
+        "path": "src/web-search/alpha-search.ts",
+        "size": 13728,
+        "mode": 420
+      },
+      {
+        "path": "src/web-search/anthropic-executor.ts",
+        "size": 11203,
+        "mode": 420
+      },
+      {
+        "path": "src/web-search/backends.ts",
+        "size": 5258,
+        "mode": 420
+      },
+      {
+        "path": "src/web-search/exa-executor.ts",
+        "size": 5810,
+        "mode": 420
+      },
+      {
+        "path": "src/web-search/executor.ts",
+        "size": 6921,
+        "mode": 420
+      },
+      {
+        "path": "src/web-search/format-result.ts",
+        "size": 4267,
+        "mode": 420
+      },
+      {
+        "path": "src/web-search/gemini-executor.ts",
+        "size": 6888,
+        "mode": 420
+      },
+      {
+        "path": "src/web-search/index.ts",
+        "size": 12779,
+        "mode": 420
+      },
+      {
+        "path": "src/web-search/loop.ts",
+        "size": 51242,
+        "mode": 420
+      },
+      {
+        "path": "src/web-search/ollama-executor.ts",
+        "size": 6023,
+        "mode": 420
+      },
+      {
+        "path": "src/web-search/parse.ts",
+        "size": 14621,
+        "mode": 420
+      },
+      {
+        "path": "src/web-search/passthrough-bridge.ts",
+        "size": 49391,
+        "mode": 420
+      },
+      {
+        "path": "src/web-search/progress-stream.ts",
+        "size": 11818,
+        "mode": 420
+      },
+      {
+        "path": "src/web-search/sidecar-providers.ts",
+        "size": 5283,
+        "mode": 420
+      },
+      {
+        "path": "src/web-search/sources.ts",
+        "size": 2329,
+        "mode": 420
+      },
+      {
+        "path": "src/web-search/synthetic-tool.ts",
+        "size": 2080,
+        "mode": 420
+      },
+      {
+        "path": "src/web-search/xai-executor.ts",
+        "size": 10057,
+        "mode": 420
+      }
+    ],
+    "entryCount": 1371,
+    "bundled": []
+  }
+]

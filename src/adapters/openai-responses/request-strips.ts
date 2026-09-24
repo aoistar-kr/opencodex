@@ -3,6 +3,23 @@ import { isPlainObject } from "./internal";
 import { activateDeferredTool } from "./tool-schema";
 import { stripOpenAiOnlyWebSearchFields } from "./web-search";
 
+/** ChatGPT-auth-only top-level request controls that routed Responses backends must not receive. */
+const CANONICAL_ONLY_TOP_LEVEL_FIELDS: ReadonlySet<string> = new Set([
+  "access_programs",
+]);
+
+export function stripCanonicalOnlyTopLevelFields(body: unknown): unknown {
+  if (!isPlainObject(body)) return body;
+
+  let next = body;
+  for (const field of CANONICAL_ONLY_TOP_LEVEL_FIELDS) {
+    if (!Object.hasOwn(next, field)) continue;
+    if (next === body) next = { ...body };
+    delete next[field];
+  }
+  return next;
+}
+
 export function stripInvalidItemIds(body: unknown): unknown {
   if (!isPlainObject(body) || !Array.isArray(body.input)) return body;
 

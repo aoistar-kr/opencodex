@@ -132,6 +132,14 @@ describe("OpenCode Go Grok 4.6 Responses compatibility", () => {
     expect(body.tools).toEqual([webSearch]);
   });
 
+  test("strips ChatGPT-only access_programs before Console Go", () => {
+    const body = build("muse-spark-1.3-contributor", {
+      access_programs: { cyber: "daybreak_blue" },
+    });
+
+    expect(body).not.toHaveProperty("access_programs");
+  });
+
   test("preserves hosted search for Grok 4.6 on another destination", () => {
     const webSearch = { type: "web_search", search_context_size: "medium" };
     const body = build("grok-4.6", { tools: [webSearch] }, provider("https://api.x.ai/v1"));

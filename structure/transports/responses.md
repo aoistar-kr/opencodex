@@ -76,6 +76,12 @@ Codex-private tool fields are removed at the same boundary from one table
 web-search variant, and `defer_loading` on any declaration, which `activateDeferredTool` clears only
 for tools a `tool_search_output` already loaded. A new private bit is a row there.
 
+The same noncanonical boundary owns ChatGPT-auth-only top-level request controls. Codex emits
+`access_programs` only for ChatGPT-authenticated turns, but an OpenCodex-routed request can retain
+that field after the final destination changes. `stripCanonicalOnlyTopLevelFields` removes it before
+noncanonical Responses dispatch, while canonical ChatGPT forwarding preserves it. The transform is
+copy-on-write so the caller-owned raw body remains available to replay and recovery.
+
 After that namespace boundary has produced public function tools, the Grok CLI Responses transport
 applies the same root-schema policy as its Chat transport. A root `oneOf`/`anyOf` is flattened only
 when the shared xAI normalizer can preserve its meaning; an unsafe function is omitted instead of

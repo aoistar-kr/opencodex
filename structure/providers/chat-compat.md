@@ -22,6 +22,10 @@ and does not guarantee upstream cache hits. Regression coverage is in
 
 Shared parsing and streaming follow the [request-copy](../transports/byte-accounting.md#request-copy-accounting) and [stream-buffer accounting](../transports/byte-accounting.md#stream-buffer-accounting) contracts.
 
+ChatGPT-auth-only top-level `access_programs` is removed only when the final route uses a
+noncanonical `openai-responses` passthrough. Chat adapters rebuild their own wire body and gain no
+new provider-specific field rule from that sanitizer.
+
 ## Reasoning and tool-result compatibility
 
 Kiro groups only consecutive original-message tool results whose raw call ID exactly matches

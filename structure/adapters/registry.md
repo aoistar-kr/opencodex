@@ -8,6 +8,10 @@ is scoped to canonical ChatGPT Responses forwarding; other source-area behavior 
 
 Shared parsing and streaming follow the [request-copy](../transports/byte-accounting.md#request-copy-accounting) and [stream-buffer accounting](../transports/byte-accounting.md#stream-buffer-accounting) contracts.
 
+The effective `openai-responses` contract includes destination-scoped removal of ChatGPT-only
+top-level `access_programs`. Canonical ChatGPT forwarding preserves it; noncanonical Responses
+destinations receive the sanitized request copy regardless of which provider entry selected the adapter.
+
 ## Decision
 
 Runtime adapter construction has one authority: `src/adapters/registry.ts`.

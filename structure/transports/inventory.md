@@ -11,6 +11,10 @@ changes translated message placement only; endpoint selection and transport stay
 
 Shared parsing and streaming follow the [request-copy](byte-accounting.md#request-copy-accounting) and [stream-buffer accounting](byte-accounting.md#stream-buffer-accounting) contracts.
 
+OpenAI-compatible Responses routing also applies the destination boundary documented in
+[Responses transport](responses.md#responses-httpsse): ChatGPT-only top-level `access_programs`
+is removed from noncanonical sends and retained on the canonical ChatGPT forward route.
+
 ## Transport inventory
 
 The sections above cover the transports with load-bearing invariants. The rest of the transport
