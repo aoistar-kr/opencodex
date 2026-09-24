@@ -873,7 +873,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
           }
           throw error;
         }
-        const { accountBoundNativeOpenAiSlugsBySelector, applyNativeVisibility, buildCatalogEntries, configuredNativeAliasSlugs, desktopAllowlistSuppressedNativeSlugs, disabledNativeSlugs, exactComboCatalogSlugs, loadCatalogTemplate, NATIVE_OPENAI_MODELS, nativeContextLimits, nativeInputModalities, nativeOpenAiContextWindow, nativeOpenAiMaxOutputTokens, nativeOpenAiContextTier, nativeOpenAiSlugs, nativeReasoningEfforts, nativeDefaultReasoningEffort, shouldIncludeAccountBoundNativeOpenAi, shouldIncludeNativeOpenAi, uniqueCatalogModelsForRawPublicList, visibleCodexAccountSelectors, visibleNativeSlugs, desktopVisibleNativeSlugs } = await import("../../codex/catalog");
+        const { accountBoundNativeOpenAiSlugsBySelector, applyNativeVisibility, applyObservedNativeAccessPrograms, buildCatalogEntries, configuredNativeAliasSlugs, desktopAllowlistSuppressedNativeSlugs, disabledNativeSlugs, exactComboCatalogSlugs, loadCatalogTemplate, NATIVE_OPENAI_MODELS, nativeContextLimits, nativeInputModalities, nativeOpenAiContextWindow, nativeOpenAiMaxOutputTokens, nativeOpenAiContextTier, nativeOpenAiSlugs, nativeReasoningEfforts, nativeDefaultReasoningEffort, shouldIncludeAccountBoundNativeOpenAi, shouldIncludeNativeOpenAi, uniqueCatalogModelsForRawPublicList, visibleCodexAccountSelectors, visibleNativeSlugs, desktopVisibleNativeSlugs } = await import("../../codex/catalog");
         const { ACCOUNT_GATED_NATIVE_OPENAI_MODELS } = await import("../../codex/catalog/native-models");
         const includeNativeOpenAi = shouldIncludeNativeOpenAi(config);
         const includeAccountBoundNativeOpenAi = shouldIncludeAccountBoundNativeOpenAi(config);
@@ -909,6 +909,11 @@ export function createServeOptions(ctx: ServeOptionsContext) {
           ? visibleCodexAccountSelectors(config)
           : [];
         const accountTargets = new Map(codexAccountNamespaceEntries(config));
+        const accountIdBySelector = new Map(accountSelectors.flatMap(selector => {
+          const target = accountTargets.get(selector);
+          const accountId = target && isMainCodexAccountTarget(target) ? MAIN_CODEX_ACCOUNT_ID : target;
+          return accountId ? [[selector, accountId] as const] : [];
+        }));
         const accountNativeSlugsBySelector = includeAccountBoundNativeOpenAi
           ? new Map([...accountBoundNativeOpenAiSlugsBySelector(config)].map(([selector, slugs]) => {
             const target = accountTargets.get(selector);
@@ -1053,6 +1058,10 @@ export function createServeOptions(ctx: ServeOptionsContext) {
             config.keepNativeChatGptOnV1 === true,
             config.modelPickerOrder,
           );
+          applyObservedNativeAccessPrograms(entries, modelEntitlements, {
+            bareEligibleAccountIds,
+            accountIdBySelector,
+          });
           return jsonResponse({
             models: applyNativeVisibility(
               entries,

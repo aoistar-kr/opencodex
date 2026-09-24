@@ -505,6 +505,7 @@ export function createResponsesPassthroughAdapter(provider: OcxProviderConfig): 
             ),
           ),
           isXaiResponsesDestination(provider),
+          isCodexPrivateMetadataLoopback(provider),
         ),
         isXaiSchemaTarget(provider),
       );

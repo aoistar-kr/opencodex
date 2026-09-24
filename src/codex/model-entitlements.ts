@@ -407,12 +407,20 @@ interface CachedAccountModels {
   readonly clientVersion: string;
   readonly expiresAt: number;
   readonly models: ReadonlySet<string>;
+  readonly availableAccessProgramsByModel: ReadonlyMap<string, CodexAvailableAccessPrograms>;
   readonly confirmed: boolean;
   readonly provenance?: CodexModelEntitlementProvenance;
 }
 
+export type CodexAvailableAccessPrograms = Readonly<Record<string, readonly string[]>>;
+
 export interface CodexModelEntitlementSnapshot {
   readonly modelsByAccount: ReadonlyMap<string, ReadonlySet<string>>;
+  /** Authenticated `/models` capability metadata, kept account-scoped like the roster itself. */
+  readonly availableAccessProgramsByAccount?: ReadonlyMap<
+    string,
+    ReadonlyMap<string, CodexAvailableAccessPrograms>
+  >;
   readonly clientVersionByAccount: ReadonlyMap<string, string>;
   readonly confirmedAccountIds: ReadonlySet<string>;
   readonly credentialIdentities: ReadonlyMap<string, string>;
@@ -633,17 +641,42 @@ async function accountCredentialSnapshot(
   }
 }
 
-function parseAccountModels(text: string): ReadonlySet<string> | null {
+function parseAvailableAccessPrograms(value: unknown): CodexAvailableAccessPrograms | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const parsed: Record<string, readonly string[]> = {};
+  for (const [kind, rawPrograms] of Object.entries(value)) {
+    if (!Array.isArray(rawPrograms)) continue;
+    const programs = [...new Set(rawPrograms.filter((program): program is string => (
+      typeof program === "string" && program.length > 0
+    )))];
+    if (programs.length > 0) parsed[kind] = programs;
+  }
+  return Object.keys(parsed).length > 0 ? parsed : undefined;
+}
+
+function parseAccountModels(text: string): {
+  models: ReadonlySet<string>;
+  availableAccessProgramsByModel: ReadonlyMap<string, CodexAvailableAccessPrograms>;
+} | null {
   try {
     const payload = JSON.parse(text) as { models?: unknown };
     if (!Array.isArray(payload.models)) return null;
-    const models = payload.models.flatMap(entry => {
-      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
-      const row = entry as { slug?: unknown; supported_in_api?: unknown; visibility?: unknown };
-      if (typeof row.slug !== "string" || row.supported_in_api !== true || row.visibility === "hide") return [];
-      return [row.slug];
-    });
-    return new Set(models);
+    const models: string[] = [];
+    const availableAccessProgramsByModel = new Map<string, CodexAvailableAccessPrograms>();
+    for (const entry of payload.models) {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+      const row = entry as {
+        slug?: unknown;
+        supported_in_api?: unknown;
+        visibility?: unknown;
+        available_access_programs?: unknown;
+      };
+      if (typeof row.slug !== "string" || row.supported_in_api !== true || row.visibility === "hide") continue;
+      models.push(row.slug);
+      const accessPrograms = parseAvailableAccessPrograms(row.available_access_programs);
+      if (accessPrograms) availableAccessProgramsByModel.set(row.slug, accessPrograms);
+    }
+    return { models: new Set(models), availableAccessProgramsByModel };
   } catch {
     return null;
   }
@@ -660,6 +693,7 @@ function unconfirmedAccountModels(
     clientVersion,
     expiresAt: now + MODEL_ROSTER_FAILURE_TTL_MS,
     models: new Set(),
+    availableAccessProgramsByModel: new Map(),
     confirmed: false,
     provenance,
   };
@@ -702,8 +736,8 @@ async function fetchAccountModels(
     if (!body.displaySafe || body.truncated) {
       return unconfirmedAccountModels(credential, clientVersion, now, { kind: "unparseable" });
     }
-    const models = parseAccountModels(body.text);
-    if (models === null) {
+    const parsed = parseAccountModels(body.text);
+    if (parsed === null) {
       return unconfirmedAccountModels(credential, clientVersion, now, { kind: "unparseable" });
     }
     // A roster is a confirmation only when it lists something usable. `models` is a Set, and an
@@ -713,7 +747,7 @@ async function fetchAccountModels(
     // account asked under too old a client version answers with no gated rows, and treating
     // that as authoritative is exactly how 2.36.0 denied sol/terra/luna to accounts that own
     // them (#3022). No usable rows means unconfirmed, on the 15s failure TTL, asked again.
-    const usable = models.size > 0;
+    const usable = parsed.models.size > 0;
     if (!usable) {
       return unconfirmedAccountModels(credential, clientVersion, now, { kind: "parsed-empty" });
     }
@@ -726,7 +760,7 @@ async function fetchAccountModels(
       // upstream ever raises its true requirement above the measured constant, that constant is
       // the only thing standing between an entitled account and a five-minute cached denial.
       .some(([modelId, minimum]) => (
-        !models.has(modelId) && compareClientVersions(clientVersion, minimum) < 0
+        !parsed.models.has(modelId) && compareClientVersions(clientVersion, minimum) < 0
       ));
     return {
       credentialIdentity: credential.credentialIdentity,
@@ -734,7 +768,8 @@ async function fetchAccountModels(
       expiresAt: now + (!hasUnknownGatedAbsence
         ? MODEL_ROSTER_TTL_MS
         : MODEL_ROSTER_FAILURE_TTL_MS),
-      models,
+      models: parsed.models,
+      availableAccessProgramsByModel: parsed.availableAccessProgramsByModel,
       confirmed: true,
     };
   } catch (error) {
@@ -796,6 +831,7 @@ async function modelsForCredential(
       clientVersion,
       expiresAt: now,
       models: new Set(),
+      availableAccessProgramsByModel: new Map(),
       confirmed: false,
     };
   }
@@ -811,6 +847,7 @@ async function modelsForCredential(
       clientVersion,
       expiresAt: now,
       models: new Set(),
+      availableAccessProgramsByModel: new Map(),
       confirmed: false,
     };
   }
@@ -1173,12 +1210,44 @@ export async function resolveCodexModelEntitlements(
   })));
   return {
     modelsByAccount: new Map(results.map(({ credential, result }) => [credential.accountId, result.models])),
+    availableAccessProgramsByAccount: new Map(results.map(({ credential, result }) => (
+      [credential.accountId, result.availableAccessProgramsByModel]
+    ))),
     clientVersionByAccount: new Map(results.map(({ credential, result }) => (
       [credential.accountId, result.clientVersion]
     ))),
     confirmedAccountIds: new Set(results.flatMap(({ credential, result }) => result.confirmed ? [credential.accountId] : [])),
     credentialIdentities: new Map(results.map(({ credential }) => [credential.accountId, credential.credentialIdentity])),
   };
+}
+
+export function codexAvailableAccessProgramsForAccount(
+  snapshot: CodexModelEntitlementSnapshot,
+  accountId: string,
+  modelId: string,
+): CodexAvailableAccessPrograms | undefined {
+  if (!snapshot.confirmedAccountIds.has(accountId)) return undefined;
+  return snapshot.availableAccessProgramsByAccount?.get(accountId)?.get(modelId);
+}
+
+export function availableCodexAccessProgramsForModel(
+  snapshot: CodexModelEntitlementSnapshot,
+  modelId: string,
+  eligibleAccountIds?: ReadonlySet<string>,
+): CodexAvailableAccessPrograms | undefined {
+  const merged = new Map<string, Set<string>>();
+  for (const accountId of snapshot.modelsByAccount.keys()) {
+    if (eligibleAccountIds && !eligibleAccountIds.has(accountId)) continue;
+    const observed = codexAvailableAccessProgramsForAccount(snapshot, accountId, modelId);
+    if (!observed) continue;
+    for (const [kind, programs] of Object.entries(observed)) {
+      const values = merged.get(kind) ?? new Set<string>();
+      for (const program of programs) values.add(program);
+      merged.set(kind, values);
+    }
+  }
+  if (merged.size === 0) return undefined;
+  return Object.fromEntries([...merged].map(([kind, programs]) => [kind, [...programs]]));
 }
 
 function codexModelEntitlementStateForRoster(
@@ -1516,6 +1585,7 @@ export function seedCodexModelEntitlementsForTests(
     clientVersion,
     expiresAt: now + MODEL_ROSTER_TTL_MS,
     models: new Set(models),
+    availableAccessProgramsByModel: new Map(),
     confirmed: true,
   });
 }

@@ -77,6 +77,7 @@ import {
   orderForSubagents,
 } from "./build-entries";
 import { finishUpstreamNativeEntry } from "./derive-entry";
+import { applyObservedNativeAccessPrograms } from "./access-programs";
 import { finalizeAutoReviewModelOverride } from "./auto-review";
 import { gatedNativeAccountLabel, gatedNativeReauthSuppressionReason, warnGatedNativeSuppressedOnce } from "./gated-native-warn";
 import { reserveCatalogSuppressionReason, warnReserveSuppressedOnce } from "./reserve-warn";
@@ -366,6 +367,11 @@ function writeRetainedCatalogSync({
       trustedAccountBoundNativeCatalogSlug(entry) !== undefined),
   ];
   const accountTargets = new Map(codexAccountNamespaceEntries(config));
+  const accountIdBySelector = new Map(accountSelectors.flatMap(selector => {
+    const target = accountTargets.get(selector);
+    const accountId = target && isMainCodexAccountTarget(target) ? MAIN_CODEX_ACCOUNT_ID : target;
+    return accountId ? [[selector, accountId] as const] : [];
+  }));
   const reserveMainSelectors = accountSelectors.filter(selector =>
     isMainCodexAccountTarget(accountTargets.get(selector) ?? ""));
   // #4811: an omitted Reserve row carries no reason, so the explanation has to be emitted here,
@@ -522,6 +528,10 @@ function writeRetainedCatalogSync({
       nativeBackfillSlugs: [...availableBareNativeSlugs, ...observedNativeSlugs],
       warningPolicy: "emit",
     },
+  });
+  applyObservedNativeAccessPrograms(catalog.models, modelEntitlements, {
+    bareEligibleAccountIds,
+    accountIdBySelector,
   });
   clampCatalogModelsToCodexSupport(catalog.models);
   finalizeAutoReviewModelOverride(catalog.models, catalogModelsForMerge, config);

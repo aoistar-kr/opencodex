@@ -62,6 +62,7 @@ import {
   shouldIncludeAccountBoundNativeOpenAi,
   shouldIncludeNativeOpenAi,
 } from "./catalog/metadata";
+import { applyObservedNativeAccessPrograms } from "./catalog/access-programs";
 import {
   trustedAccountBoundNativeCatalogSlug,
   visibleCodexAccountSelectors,
@@ -283,6 +284,11 @@ function prepareCatalog(
     ? visibleCodexAccountSelectors(config)
     : [];
   const accountTargets = new Map(codexAccountNamespaceEntries(config));
+  const accountIdBySelector = new Map(accountSelectors.flatMap(selector => {
+    const target = accountTargets.get(selector);
+    const accountId = target && isMainCodexAccountTarget(target) ? MAIN_CODEX_ACCOUNT_ID : target;
+    return accountId ? [[selector, accountId] as const] : [];
+  }));
   const accountNativeSlugsBySelector = accountSelectors.length > 0
     ? new Map([...accountBoundNativeOpenAiSlugsBySelector(config, observedAccountNativeEntries)].map(([selector, slugs]) => {
       const target = accountTargets.get(selector);
@@ -383,6 +389,10 @@ function prepareCatalog(
       nativeBackfillSlugs: [...availableBareNativeSlugs, ...observedNativeSlugs],
       warningPolicy: "suppress",
     },
+  });
+  applyObservedNativeAccessPrograms(mergedModels, modelEntitlements, {
+    bareEligibleAccountIds,
+    accountIdBySelector,
   });
   clampCatalogModelsToObservedCodexSupport(
     mergedModels,

@@ -58,6 +58,10 @@ provider-wide fallback. Exact model output limits precede the provider default o
   explicitly configured canonical `openai/gpt-daybreak-blue-latest` Codex-forward row from the
   pinned Sol capability metadata while preserving its selector and Daybreak wire identity;
   this never expands the bare/API-key model lists or rewrites the wire model to `gpt-5.6-sol`;
+- retains `available_access_programs` from each authenticated account's live model row and projects
+  it only onto that account's selector-qualified native row. A bare native row receives the union
+  from the confirmed accounts eligible for that publication mode, so account-specific Daybreak
+  choices survive static alias reconstruction without granting an unobserved program;
 - clones a native template for routed `provider/model` entries;
 - forces strict Codex catalog fields required by the current parser;
 - hides `disabledModels` without blocking direct routing (routed provider ids are excluded;

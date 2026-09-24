@@ -4,10 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   ACCOUNT_GATED_NATIVE_MODEL_MINIMUM_CLIENT_VERSIONS,
+  availableCodexAccessProgramsForModel,
   availableAccountGatedNativeModels,
   cachedAvailableAccountGatedNativeModels,
   cachedDeniedCodexAccountIdsForModel,
   codexModelEntitlementStateForAccount,
+  codexAvailableAccessProgramsForAccount,
   composeGatedClientVersionFloorForTests,
   compareClientVersionsForTests,
   codexEntitlementNegativeMemoForTests,
@@ -206,6 +208,36 @@ describe("Codex account model entitlements", () => {
     expect(entitledCodexAccountIdsForModel(snapshot, TERRA)).toBeUndefined();
     expect(entitledCodexAccountIdsForModel(snapshot, LUNA)).toBeUndefined();
     expect([...availableAccountGatedNativeModels(snapshot)]).toEqual([DAYBREAK]);
+  });
+
+  test("retains authenticated available_access_programs per account and model", async () => {
+    const snapshot = await resolveCodexModelEntitlements({ codexAccounts: [] }, {
+      credentials: [credential("main"), credential("secondary")],
+      fetcher: (async (_input, init) => {
+        const accountId = new Headers(init?.headers).get("chatgpt-account-id");
+        return Response.json({ models: [{
+          slug: "gpt-6-sol",
+          supported_in_api: true,
+          visibility: "list",
+          available_access_programs: {
+            cyber: accountId === "chatgpt-main"
+              ? ["standard", "daybreak_blue", "daybreak_blue"]
+              : ["standard"],
+          },
+        }] });
+      }) as typeof fetch,
+      now: 1_000,
+      clientVersion: TEST_CLIENT_VERSION,
+    });
+
+    expect(codexAvailableAccessProgramsForAccount(snapshot, "main", "gpt-6-sol"))
+      .toEqual({ cyber: ["standard", "daybreak_blue"] });
+    expect(codexAvailableAccessProgramsForAccount(snapshot, "secondary", "gpt-6-sol"))
+      .toEqual({ cyber: ["standard"] });
+    expect(availableCodexAccessProgramsForModel(snapshot, "gpt-6-sol"))
+      .toEqual({ cyber: ["standard", "daybreak_blue"] });
+    expect(availableCodexAccessProgramsForModel(snapshot, "gpt-6-sol", new Set(["secondary"])))
+      .toEqual({ cyber: ["standard"] });
   });
 
   test("fails closed when an account roster cannot be confirmed", async () => {

@@ -169,9 +169,15 @@ export function stripCanonicalOnlyTopLevelFields(body: unknown): unknown {
  * When `store` is false, the upstream API does not persist response items. Any item ID
  * forwarded in `input` is then interpreted as a reference to a stored item that does not
  * exist, producing a 404. Strip all item IDs in this case — `call_id` pairing is unaffected.
- * Matches codex-rs behavior (core/src/client.rs:918-925).
+ * Matches codex-rs behavior (core/src/client.rs:918-925). An explicitly trusted Codex-aware
+ * loopback may preserve the IDs as local lineage evidence: that runtime consumes the complete
+ * input itself and never resolves the IDs against an upstream response store.
  */
-export function stripItemIdsWhenUnstored(body: unknown, requireCustomCallIds = false): unknown {
+export function stripItemIdsWhenUnstored(
+  body: unknown,
+  requireCustomCallIds = false,
+  preserveUnstoredItemIds = false,
+): unknown {
   const repairCustomCallIds = requireCustomCallIds === true;
   if (!isPlainObject(body) || (body.store !== false && !repairCustomCallIds)) return body;
   if (!Array.isArray(body.input)) return body;
@@ -201,7 +207,7 @@ export function stripItemIdsWhenUnstored(body: unknown, requireCustomCallIds = f
         return item;
       }
     }
-    if (body.store !== false || !("id" in item)) return item;
+    if (body.store !== false || preserveUnstoredItemIds || !("id" in item)) return item;
     changed = true;
     const next = { ...item };
     delete next.id;
