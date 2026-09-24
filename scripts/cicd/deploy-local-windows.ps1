@@ -13,7 +13,11 @@ if ([IO.Path]::GetExtension($package) -ne '.tgz') {
 $npmCommand = Get-Command npm.cmd -ErrorAction SilentlyContinue
 if (-not $npmCommand) { $npmCommand = Get-Command npm -ErrorAction Stop }
 $prefix = (& $npmCommand.Source prefix -g).Trim()
-if (-not [IO.Path]::IsPathFullyQualified($prefix)) { throw "npm global prefix is not absolute: $prefix" }
+# Windows PowerShell 5.1 runs on .NET Framework, which does not expose
+# Path.IsPathFullyQualified. IsPathRooted is sufficient here because npm's
+# Windows global prefix must be a rooted drive/UNC path before we derive the
+# package directory below.
+if (-not [IO.Path]::IsPathRooted($prefix)) { throw "npm global prefix is not absolute: $prefix" }
 
 $installRoot = Join-Path $prefix 'node_modules\@bitkyc08\opencodex'
 $expectedRoot = [IO.Path]::GetFullPath((Join-Path $prefix 'node_modules'))
