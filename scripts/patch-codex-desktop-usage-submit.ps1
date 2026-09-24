@@ -160,6 +160,25 @@ function Stop-CodexPackageProcesses {
   throw "Codex package processes survived shutdown."
 }
 
+function Copy-FileContents {
+  param([string]$Source, [string]$Destination)
+  $inputStream = [IO.File]::Open($Source, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+  try {
+    # WindowsApps denies replacing a package member through its parent directory even
+    # after elevation. Opening the already-owned file itself for writes is permitted.
+    $outputStream = [IO.File]::Open($Destination, [IO.FileMode]::Open, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    try {
+      $outputStream.SetLength($inputStream.Length)
+      $inputStream.CopyTo($outputStream, 4MB)
+      $outputStream.Flush($true)
+    } finally {
+      $outputStream.Dispose()
+    }
+  } finally {
+    $inputStream.Dispose()
+  }
+}
+
 if (-not $Worker) {
   Import-Module Appx -ErrorAction SilentlyContinue
   $pkg = Get-AppxPackage -Name $PackageName | Where-Object { $_.PackageFamilyName -eq $PackageFamily }
@@ -214,7 +233,7 @@ try {
   if ($LASTEXITCODE -ne 0) { throw "Could not take ownership of the installed Codex archive." }
   & "$env:SystemRoot\System32\icacls.exe" $target /grant "*S-1-5-32-544:F" /Q | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "Could not grant archive replacement access." }
-  Copy-Item -LiteralPath $PatchedArchive -Destination $target -Force
+  Copy-FileContents -Source $PatchedArchive -Destination $target
 
   Write-Status -Stage "restart" -State "running" -Message "Restarting Codex desktop."
   Start-Process "shell:AppsFolder\$Aumid"
