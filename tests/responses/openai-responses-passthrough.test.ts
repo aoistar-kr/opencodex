@@ -1,4 +1,4 @@
-import { describe, expect, spyOn, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { Buffer } from "node:buffer";
 import { createOpenAIChatAdapter } from "../../src/adapters/openai-chat";
 import { createResponsesPassthroughAdapter as createResponsesPassthroughAdapterProduction } from "../../src/adapters/openai-responses";
@@ -22,8 +22,16 @@ import {
 import { createTranslatorBudget } from "../../src/lib/translator-budget";
 import type { AdapterEvent, OcxConfig } from "../../src/types";
 import { withTestTranslatorBudget } from "../helpers/translator-budget";
+import { acquireOwnedSpendHome } from "../helpers/owned-spend-home";
+import { buildKeyAuthUrl } from "../helpers/passthrough-key-url";
 import { restoreRoutedNamespaceCalls } from "../../src/responses/namespace-tool-compat";
 import { restoreRoutedCustomCalls } from "../../src/responses/custom-tool-compat";
+
+// A case that calls handleResponses directly never takes the writer lease startServer takes, so
+// its dispatch is refused. Dropped in teardown so a throwing case cannot leave the lease behind.
+let releaseSpendHome: (() => void) | undefined;
+const takeSpendHome = (): void => { releaseSpendHome ??= acquireOwnedSpendHome(); };
+afterEach(() => { releaseSpendHome?.(); releaseSpendHome = undefined; });
 
 const createResponsesPassthroughAdapter = (...args: Parameters<typeof createResponsesPassthroughAdapterProduction>) =>
   withTestTranslatorBudget(createResponsesPassthroughAdapterProduction(...args));
@@ -559,6 +567,7 @@ test("noncanonical Responses preserves provider-owned safety-buffering hints", a
         dropCodexSafetyBuffering: true,
         providers: { fixture: providerConfig },
       } as OcxConfig;
+      takeSpendHome();
       const response = await handleResponses(new Request("http://localhost/v1/responses", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -603,10 +612,9 @@ test("noncanonical pool-required providers use only their configured static cred
   expect(request.headers.session_id).toBeUndefined();
 });
 
-test("noncanonical Responses destinations strip ChatGPT-private request metadata", () => {
+test("noncanonical Responses destinations strip Codex-private item metadata", () => {
   const rawBody = {
     model: "openai/gpt-5.6-sol",
-    access_programs: { cyber: "daybreak_blue" },
     input: [
       {
         type: "message",
@@ -644,48 +652,37 @@ test("noncanonical Responses destinations strip ChatGPT-private request metadata
       options: {},
       _rawBody: rawBody,
     }, { headers: new Headers() });
-    const body = JSON.parse(request.body) as { access_programs?: unknown; input: Record<string, unknown>[] };
+    const body = JSON.parse(request.body) as { input: Record<string, unknown>[] };
 
-    expect(body.access_programs).toBeUndefined();
     expect(body.input.every(item => !("internal_chat_message_metadata_passthrough" in item)))
       .toBe(true);
   }
 
-  expect(rawBody.access_programs).toEqual({ cyber: "daybreak_blue" });
   expect(rawBody.input.every(item => "internal_chat_message_metadata_passthrough" in item))
     .toBe(true);
 });
 
 test("explicit Codex-aware loopback preserves private provenance and only safe identity headers", () => {
-  const turnMetadata = JSON.stringify({
-    thread_id: "thread-live-1",
-    turn_id: "turn-live-1",
-    sandbox: "workspace-write",
-  });
-  const rawBody = {
-    model: "chatgpt-web/high",
-    client_metadata: { "x-codex-turn-metadata": turnMetadata },
-    input: [{
-      type: "message",
-      role: "user",
-      content: [{ type: "input_text", text: "<environment_context><cwd>C:\\workspace</cwd></environment_context>" }],
-      internal_chat_message_metadata_passthrough: {
-        turn_id: "turn-live-1",
-        content_item_kinds: ["environments.environment_context"],
-      },
-    }],
-  };
+  const turnMetadata = JSON.stringify({ thread_id: "thread-live-1", turn_id: "turn-live-1" });
   const request = createResponsesPassthroughAdapter({
     adapter: "openai-responses",
     baseUrl: "http://127.0.0.1:17841/v1",
     allowPrivateNetwork: true,
     preserveCodexPrivateMetadata: true,
   }).buildRequest({
-    modelId: rawBody.model,
+    modelId: "chatgpt-web/high",
     context: { messages: [] },
     stream: true,
     options: {},
-    _rawBody: rawBody,
+    _rawBody: {
+      model: "chatgpt-web/high",
+      input: [{
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: "ping" }],
+        internal_chat_message_metadata_passthrough: { turn_id: "turn-live-1" },
+      }],
+    },
   }, { headers: new Headers({
     authorization: "Bearer caller-secret",
     "chatgpt-account-id": "caller-account",
@@ -693,18 +690,14 @@ test("explicit Codex-aware loopback preserves private provenance and only safe i
     originator: "codex_work_desktop",
     "thread-id": "thread-live-1",
     "x-codex-turn-metadata": turnMetadata,
-    "x-codex-turn-state": JSON.stringify({ turn_id: "turn-live-1" }),
   }) });
   const body = JSON.parse(request.body) as {
     input: Array<{ internal_chat_message_metadata_passthrough?: unknown }>;
   };
 
-  expect(body.input[0]?.internal_chat_message_metadata_passthrough).toEqual({
-    turn_id: "turn-live-1",
-    content_item_kinds: ["environments.environment_context"],
-  });
+  expect(body.input[0]?.internal_chat_message_metadata_passthrough)
+    .toEqual({ turn_id: "turn-live-1" });
   expect(request.headers["x-codex-turn-metadata"]).toBe(turnMetadata);
-  expect(request.headers["x-codex-turn-state"]).toBe(JSON.stringify({ turn_id: "turn-live-1" }));
   expect(request.headers["thread-id"]).toBe("thread-live-1");
   expect(request.headers.originator).toBe("codex_work_desktop");
   expect(request.headers.authorization).toBeUndefined();
@@ -734,7 +727,7 @@ test("Codex-private metadata opt-in is inert for non-loopback providers", () => 
     },
   }, { headers: new Headers({
     authorization: "Bearer caller-secret",
-    "x-codex-turn-metadata": JSON.stringify({ thread_id: "thread-public", turn_id: "turn-public" }),
+    "x-codex-turn-metadata": JSON.stringify({ thread_id: "thread-public" }),
   }) });
   const body = JSON.parse(request.body) as { input: Record<string, unknown>[] };
 
@@ -751,7 +744,6 @@ test("canonical ChatGPT forward preserves Codex-private item metadata", () => {
     options: {},
     _rawBody: {
       model: "gpt-5.6-sol",
-      access_programs: { cyber: "daybreak_blue" },
       input: [{
         type: "message",
         role: "user",
@@ -761,11 +753,9 @@ test("canonical ChatGPT forward preserves Codex-private item metadata", () => {
     },
   }, { headers: new Headers({ authorization: "Bearer token" }) });
   const body = JSON.parse(request.body) as {
-    access_programs?: unknown;
     input: { internal_chat_message_metadata_passthrough?: unknown }[];
   };
 
-  expect(body.access_programs).toEqual({ cyber: "daybreak_blue" });
   expect(body.input[0].internal_chat_message_metadata_passthrough)
     .toEqual({ turn_id: "turn-1" });
 });
@@ -784,23 +774,6 @@ test("passthrough serialized-body observation releases after the request settles
   expect(budget.snapshot().currentBytes).toBe(0);
   budget.dispose();
 });
-
-function buildKeyAuthUrl(baseUrl: string, responsesPath?: string): string {
-  const adapter = createResponsesPassthroughAdapter({
-    adapter: "openai-responses",
-    baseUrl,
-    authMode: "key" as const,
-    apiKey: "sk-test",
-    ...(responsesPath === undefined ? {} : { responsesPath }),
-  });
-  return adapter.buildRequest({
-    modelId: "test-model",
-    context: { messages: [] },
-    stream: true,
-    options: {},
-    _rawBody: { model: "test-model", input: "ping" },
-  }, { headers: new Headers() }).url;
-}
 
 describe("OpenAI Responses key-auth URL construction", () => {
   test("BUG-R289 preserves legacy /v1/responses URL when responsesPath is absent", () => {
@@ -1362,7 +1335,7 @@ describe("routed compaction lowering order", () => {
     expect(body.input.some(item => item.type === "additional_tools")).toBe(false);
   });
 
-  test("lifts the non-compaction private tool catalog without changing replay order", () => {
+  test("leaves the non-compaction serialized body byte-identical", () => {
     const built = build(false);
     expect(built.body).toBe(JSON.stringify({
       model: "routed-model",
@@ -1377,8 +1350,13 @@ describe("routed compaction lowering order", () => {
           ],
         },
         ...loweredReplay,
+        {
+          type: "additional_tools",
+          role: "developer",
+          tools: [{ type: "function", name: "extra", parameters: { type: "object" } }],
+        },
       ],
-      tools: [...loweredTools, { type: "function", name: "extra", parameters: { type: "object" } }],
+      tools: loweredTools,
       tool_choice: "auto",
       parallel_tool_calls: true,
       text: { format: { type: "json_object" } },
@@ -1532,7 +1510,7 @@ describe("OpenAI Responses passthrough sanitization", () => {
     expect(body.tools).toEqual(deferredToolBody.tools);
   });
 
-  test("routed passthrough promotes Responses Lite tools into the public top-level catalog", () => {
+  test("routed passthrough promotes tool-search results into Responses Lite additional tools", () => {
     const adapter = createResponsesPassthroughAdapter({
       adapter: "openai-responses",
       baseUrl: "https://provider.example/v1",
@@ -1554,21 +1532,22 @@ describe("OpenAI Responses passthrough sanitization", () => {
       options: {},
       _rawBody: rawBody,
     }, { headers: new Headers() }).body) as {
-      tools: Array<{ type: string; name?: string; tools?: Array<{ name: string }> }>;
+      tools?: unknown[];
       input: Array<{
         type: string;
         tools?: Array<{ type: string; name?: string; tools?: Array<{ name: string }> }>;
       }>;
     };
 
-    expect(body.input.some(item => item.type === "additional_tools")).toBe(false);
-    expect(body.tools.some(tool => tool.type === "namespace")).toBe(false);
-    expect(body.tools.filter(tool => tool.name?.startsWith("workspace__")).map(tool => tool.name)).toEqual([
+    expect(body.tools).toBeUndefined();
+    const additionalTools = body.input.find(item => item.type === "additional_tools")?.tools;
+    expect(additionalTools?.some(tool => tool.type === "namespace")).toBe(false);
+    expect(additionalTools?.filter(tool => tool.name?.startsWith("workspace__")).map(tool => tool.name)).toEqual([
       "workspace__upfront_read",
       "workspace__declared_deferred_read",
       "workspace__deferred_read",
     ]);
-    expect(body.tools.find(tool => tool.name === "tool_search"))
+    expect(additionalTools?.find(tool => tool.name === "tool_search"))
       .toMatchObject({ type: "function", name: "tool_search" });
   });
 
@@ -1711,12 +1690,11 @@ describe("OpenAI Responses passthrough sanitization", () => {
 
     for (const lite of [false, true]) {
       const body = build(lite);
-      const tools = body.tools;
+      const tools = lite ? body.input[0]?.tools : body.tools;
       expect(tools?.map(tool => tool.name)).toEqual([
         "mcp__codex_app__safe_union",
         "mcp__codex_app__plain",
       ]);
-      if (lite) expect(body.input.some(item => item.type === "additional_tools")).toBe(false);
       const safe = tools?.find(tool => tool.name === "mcp__codex_app__safe_union")?.parameters;
       expect(safe).toEqual({
         type: "object",
@@ -2606,13 +2584,13 @@ describe("OpenAI Responses passthrough sanitization", () => {
       },
     }, { headers: new Headers() });
     const body = JSON.parse(request.body) as {
-      tools: Record<string, unknown>[];
-      input: Array<{ type: string; tools?: Record<string, unknown>[] }>;
+      tools?: Record<string, unknown>[];
+      input: Array<{ type: string; tools: Record<string, unknown>[] }>;
       tool_choice: Record<string, unknown>;
     };
 
-    expect(body.tools).toEqual([{ type: "web_search" }]);
-    expect(body.input.some(item => item.type === "additional_tools")).toBe(false);
+    expect(body.tools).toBeUndefined();
+    expect(body.input[0]?.tools).toEqual([{ type: "web_search" }]);
     expect(body.tool_choice).toEqual({ type: "web_search" });
   });
 
@@ -2782,15 +2760,13 @@ describe("OpenAI Responses passthrough sanitization", () => {
     }, { headers: new Headers() });
     const body = JSON.parse(request.body) as {
       tools: Record<string, unknown>[];
-      input: Array<{ type?: string; tools?: Record<string, unknown>[] }>;
+      input: Array<{ tools: Record<string, unknown>[] }>;
     };
 
     expect(body.tools[0]).toEqual({ type: "web_search" });
     expect(body.tools[1]).toMatchObject({ type: "function", name: "workspace__read" });
     expect(body.tools[1]).not.toHaveProperty("defer_loading");
-    expect(body.tools[2]).toMatchObject({ type: "function", name: "loose" });
-    expect(body.tools[2]).not.toHaveProperty("defer_loading");
-    expect(body.input.some(item => item.type === "additional_tools")).toBe(false);
+    expect(body.input[0].tools[0]).not.toHaveProperty("defer_loading");
   });
 
   test("preserves prompt_cache_key in the raw Responses passthrough body", () => {
@@ -3514,16 +3490,18 @@ describe("OpenAI Responses hosted-tool name conflicts", () => {
       },
     }, meta);
     const body = JSON.parse(request.body) as {
-      tools: Array<{ type: string; name?: string }>;
       input: Array<{ type: string; role?: string; tools?: Array<{ type: string; name?: string }> }>;
     };
+    const additionalTools = body.input.find(item => item.type === "additional_tools");
 
-    expect(body.input.some(item => item.type === "additional_tools")).toBe(false);
-    expect(body.tools.some(t => t.type === "namespace")).toBe(false);
-    expect(body.tools.some(t =>
+    // Preserve the input entry and unrelated tools while lowering the private namespace.
+    expect(additionalTools).toBeDefined();
+    expect(additionalTools?.role).toBe("developer");
+    expect(additionalTools?.tools?.some(t => t.type === "namespace")).toBe(false);
+    expect(additionalTools?.tools?.some(t =>
       t.type === "function" && t.name === "image_gen__imagegen"
     )).toBe(true);
-    expect(body.tools.some(t => t.type === "web_search")).toBe(true);
+    expect(additionalTools?.tools?.some(t => t.type === "web_search")).toBe(true);
     expect(body.input.some(item => item.type === "message")).toBe(true);
   });
 
@@ -3554,11 +3532,12 @@ describe("OpenAI Responses hosted-tool name conflicts", () => {
       input: Array<{ type: string; tools?: Array<{ type: string; name?: string }> }>;
       tool_choice?: { type: string; name?: string };
     };
+    const additionalTools = body.input.find(item => item.type === "additional_tools");
+
     // The platform validates one merged namespace even when declarations use different groups.
     expect(body.tools.some(t => t.type === "image_generation")).toBe(false);
     expect(body.tools.some(t => t.type === "web_search")).toBe(true);
-    expect(body.tools.some(t => t.name === "image_gen__imagegen")).toBe(true);
-    expect(body.input.some(item => item.type === "additional_tools")).toBe(false);
+    expect(additionalTools?.tools?.some(t => t.name === "image_gen__imagegen")).toBe(true);
   });
 
   test("keyed platform encodes native and legacy image-gen calls for upstream replay", () => {
@@ -3634,9 +3613,8 @@ describe("OpenAI Responses hosted-tool name conflicts", () => {
 
     expect(firstBody.tools).toEqual([
       { type: "function", name: "image_gen__imagegen", parameters: { type: "object" } },
-      { type: "web_search" },
     ]);
-    expect(firstBody.input.some(item => item.type === "additional_tools")).toBe(false);
+    expect(firstBody.input[0]?.tools).toEqual([{ type: "web_search" }]);
 
     const secondRequest = adapter.buildRequest({
       modelId: "gpt-5.6-sol",
@@ -3716,8 +3694,10 @@ describe("OpenAI Responses hosted-tool name conflicts", () => {
       tools: Array<{ type: string }>;
       input: Array<{ type: string; tools?: Array<{ type: string; name?: string }> }>;
     };
-    expect(body.tools).toEqual([{ type: "image_generation" }, { type: "web_search" }]);
-    expect(body.input.some(item => item.type === "additional_tools")).toBe(false);
+    const additionalTools = body.input.find(item => item.type === "additional_tools");
+
+    expect(body.tools).toEqual([{ type: "image_generation" }]);
+    expect(additionalTools?.tools).toEqual([{ type: "web_search" }]);
     expect(body.tool_choice).toEqual({ type: "image_generation" });
   });
 
@@ -3779,13 +3759,17 @@ describe("OpenAI Responses hosted-tool name conflicts", () => {
       },
     }, meta);
     const body = JSON.parse(request.body) as {
-      tools: Array<{ type: string }>;
       input: Array<{ type: string; tools?: Array<{ type: string }> }>;
     };
-    const hostedDeclarations = body.tools.filter(tool => tool.type === "image_generation");
-    expect(body.input.some(item => item.type === "additional_tools")).toBe(false);
-    // Exactly one hosted declaration on the public wire, so the capability is neither lost nor duplicated.
+    const containers = body.input.filter(item => item.type === "additional_tools");
+
+    expect(containers).toHaveLength(2);
+    const hostedDeclarations = containers.flatMap(container =>
+      (container.tools ?? []).filter(tool => tool.type === "image_generation"));
+    // Exactly one hosted declaration on the wire, riding the first stripped container
+    // so the capability is neither lost nor duplicated.
     expect(hostedDeclarations).toEqual([{ type: "image_generation" }]);
+    expect(containers[0].tools).toContainEqual({ type: "image_generation" });
   });
 
   test("configured model rewrites a custom image-gen selector", () => {
@@ -3894,13 +3878,12 @@ describe("OpenAI Responses hosted-tool name conflicts", () => {
       },
     }, meta);
     const body = JSON.parse(request.body) as {
-      tools: Array<{ type: string }>;
       input: Array<{ type: string; tools?: Array<{ type: string }> }>;
       tool_choice: { type: string };
     };
+    const additionalTools = body.input.find(item => item.type === "additional_tools");
 
-    expect(body.tools).toEqual([{ type: "image_generation" }]);
-    expect(body.input.some(item => item.type === "additional_tools")).toBe(false);
+    expect(additionalTools?.tools).toEqual([{ type: "image_generation" }]);
     expect(body.tool_choice).toEqual({ type: "image_generation" });
   });
 
@@ -3926,13 +3909,12 @@ describe("OpenAI Responses hosted-tool name conflicts", () => {
       },
     }, meta);
     const body = JSON.parse(request.body) as {
-      tools: Array<{ type: string }>;
       input: Array<{ type: string; tools?: Array<{ type: string }> }>;
       tool_choice: string;
     };
+    const additionalTools = body.input.find(item => item.type === "additional_tools");
 
-    expect(body.tools).toEqual([{ type: "image_generation" }]);
-    expect(body.input.some(item => item.type === "additional_tools")).toBe(false);
+    expect(additionalTools?.tools).toEqual([{ type: "image_generation" }]);
     expect(body.tool_choice).toBe("auto");
   });
 
@@ -4404,6 +4386,7 @@ describe("routed namespace and custom-tool identity", () => {
     });
 
     try {
+      takeSpendHome();
       const jsonResponse = await handleResponses(new Request("http://localhost/v1/responses", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -4424,6 +4407,7 @@ describe("routed namespace and custom-tool identity", () => {
         arguments: "{}",
       });
 
+      takeSpendHome();
       const sseResponse = await handleResponses(new Request("http://localhost/v1/responses", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -4488,6 +4472,7 @@ describe("routed namespace and custom-tool identity", () => {
     }) as typeof fetch;
 
     try {
+      takeSpendHome();
       const response = await handleResponses(new Request("http://localhost/v1/responses", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -4834,11 +4819,15 @@ describe("raw usage passthrough on the forward path (#41980 parity, #37138 adjac
     stream,
     input: [{ role: "user", content: [{ type: "input_text", text: "hi" }] }],
   });
-  const call = (stream: boolean) => handleResponses(new Request("http://localhost/v1/responses", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: requestBody(stream),
-  }), config, { model: "", provider: "" });
+  // Inside the arrow: taken beside it, at collection time, the first teardown drops it for good.
+  const call = (stream: boolean) => {
+    takeSpendHome();
+    return handleResponses(new Request("http://localhost/v1/responses", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: requestBody(stream),
+    }), config, { model: "", provider: "" });
+  };
 
   test("streamed response.completed with usage extras reaches the client byte-identical", async () => {
     const savedFetch = globalThis.fetch;
@@ -4915,6 +4904,7 @@ test("canonical Responses hint suppression is opt-in at the request boundary", a
       const config = { port: 0, dropCodexSafetyBuffering, providers: { openai: {
         ...provider, codexAccountMode: "direct", upstreamWebsocket: false,
       } } } as OcxConfig;
+      takeSpendHome();
       const response = await handleResponses(new Request("http://localhost/v1/responses", {
         method: "POST", headers: { "content-type": "application/json", authorization: "Bearer fixture-forward-token" },
         body: JSON.stringify({ model: "openai/gpt-5.6-sol", input: "ping", stream: true }),

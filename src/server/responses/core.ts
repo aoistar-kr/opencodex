@@ -10,6 +10,7 @@ import { createTranslatorBudget } from "../../lib/translator-budget";
 import { captureExplicitOpenAiCallerAuth } from "../../providers/openai-sidecar";
 import { captureCallerDirectAuth } from "../../providers/caller-authorization";
 import { createRequestExecutionBudget } from "../../lib/request-execution-budget";
+import { attachRequestSpendTracker } from "./request-spend";
 import { finalizeOwnedTranslatorBudget } from "./core-lifetime";
 import type { TranslatorBudget } from "../../lib/translator-budget";
 import { executeComboResponses } from "./core-combo";
@@ -56,9 +57,8 @@ export async function handleResponses(
       visionDescribeTerminal: options.visionDescribeTerminal === true
         || req.headers.get("x-opencodex-vision-describe") === "1",
       translatorBudget,
-      // Created once at genuine ingress; a combo child arrives with the parent's holder already
-      // in options and must not start a fresh allowance.
-      sendBudget: options.sendBudget ?? createRequestExecutionBudget(),
+      // Once at ingress, spend observer included: a combo child inherits the parent's holder.
+      sendBudget: options.sendBudget ?? createRequestExecutionBudget(undefined, undefined, attachRequestSpendTracker(req, logCtx)),
     });
     return ownsBudget ? finalizeOwnedTranslatorBudget(response, translatorBudget) : response;
   } catch (error) {
@@ -189,7 +189,7 @@ export { readDisplaySafeErrorText } from "./core-errors";
 export { usesCodexForwardPoolAuth } from "./core-codex-account";
 export { preAuthUpstreamHostCircuitKey } from "./core-codex-account";
 export { upstreamHostCircuitOpenResponse } from "./core-codex-account";
-export { shouldRetryCodexPoolAccountQuota } from "./core-codex-account";
+export { shouldRetryCodexPoolAccountQuota, shouldRetryCodexScopedQuotaOnAlternate } from "./core-codex-account";
 export { shouldRetryCodexPoolAccountTransient } from "./core-codex-account";
 export { codexAccountGatedCanonicalWireModel } from "./core-codex-account";
 export { codexForwardTerminalOutcomeRecorder } from "./core-codex-account";

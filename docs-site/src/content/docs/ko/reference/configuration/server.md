@@ -11,7 +11,7 @@ description: 리스너, 원격 접근, admission 키, 타임아웃, 저장소, �
 | --- | --- | --- | --- |
 | `port` | `number` | `10100` | 프록시 수신 포트입니다. |
 | `hostname?` | `string` | `"127.0.0.1"` | 바인드 주소입니다. 루프백이 아닌 바인드에는 데이터 admission 토큰이 필요하며, `OPENCODEX_API_AUTH_TOKEN` → `OCX_API_TOKEN_FILE` → 설치된 owner-only `service-api-token` 순서로 결정됩니다. 손으로 내보낼 값은 없습니다. [Remote access](#remote-access)를 보세요. |
-| `proxy?` | `string` | — | 송신용 HTTP(S) 프록시 URL 또는 `${ENV_VAR}`입니다. 해당 변수가 비어 있을 때만 `HTTP_PROXY` / `HTTPS_PROXY`에 적용되며, 루프백은 `NO_PROXY`에 그대로 남습니다. |
+| `proxy?` | `string` | — | 송신용 HTTP(S) 또는 SOCKS5 프록시 URL(`socks5://host:port`) 또는 `${ENV_VAR}`입니다. HTTP URL은 해당 변수가 비어 있을 때 `HTTP_PROXY` / `HTTPS_PROXY`에 적용됩니다. SOCKS5 URL은 내장 SOCKS5 터널을 사용하고 `ALL_PROXY`에도 적용되며(`ocx start --socks5`), 이 프로세스에서 상속된 `HTTP(S)_PROXY`를 지웁니다. 루프백은 `NO_PROXY`에 그대로 남습니다. |
 | `emptyCompletionRetry?` | `boolean` | `false` | 텍스트나 도구 호출이 없는 Responses 턴을, 터미널 이벤트 전에 스트림이 종료된 경우를 포함해 동일한 요청으로 한 번 재시도하도록 선택합니다. 재시도에는 비용이 발생할 수 있습니다. `OCX_EMPTY_COMPLETION_RETRY=0`은 설정을 바꾸지 않고 비활성화하며, combo 및 routed-compaction turn은 제외됩니다. |
 | `dropCodexSafetyBuffering?` | `boolean` | `false` | Canonical Codex Responses 응답의 선택적 safety-buffering 헤더 두 개와 SSE 힌트를 제거합니다. 공급자의 안전 정책이나 거절 응답은 바뀌지 않습니다. Native WS 메타데이터와 compact는 제외됩니다. |
 | `stallTimeoutSec?` | `number` | `300` | Responses 및 네이티브 Chat에서 유효한 업스트림 진행이 없는 시간(초). 최소 1초. |
@@ -19,9 +19,10 @@ description: 리스너, 원격 접근, admission 키, 타임아웃, 저장소, �
 | `shutdownTimeoutMs?` | `number` | `5000` | 진행 중인 turn을 중단하기 전에 허용하는 정상 종료 드레인 기한입니다. |
 | `websockets?` | `boolean` | `false` | 클라이언트용 Responses WebSocket 경로를 광고하고 허용합니다. `false`이면 클라이언트는 HTTP/SSE를 사용하며, 적격 canonical ChatGPT 업스트림 WS 최적화는 비활성화하지 않습니다. |
 | `corsAllowOrigins?` | `string[]` | `[]` | CORS에서 추가로 허용할 정확한 origin입니다. 루프백 origin은 항상 허용됩니다. `chrome-extension://<extension-id>` 같은 authority 기반 브라우저 확장 origin을 지원하며, `*`는 와일드카드가 아닙니다. Firefox와 Safari는 확장 UUID를 (설치/브라우저 실행 때마다) 새로 만드므로 origin이 바뀌면 항목을 갱신하세요. |
-| `apiKeys?` | `OcxApiKey[]` | `[]` | 비루프백 바인드에서 관리 API와 데이터 플레인 인증이 허용하는 생성된 `ocx_…` 자격 증명입니다. 대시보드에서 관리합니다. |
+| `apiKeys?` | `OcxApiKey[]` | `[]` | 비루프백 바인드에서 데이터 플레인 요청만 허용하는 생성된 `ocx_…` 자격 증명입니다. 관리 API는 허가하지 않으며, 관리 접근에는 [관리 API 레퍼런스](/ko/reference/management-api/)에 설명된 별도의 자격 증명을 사용합니다. 대시보드에서 관리합니다. |
 | `storageCleanupPolicy?` | `StorageCleanupPolicy` | disabled | 선택적으로 활성화하는 보관 세션 정리 정책입니다. 절대 암묵적으로 활성화되지 않습니다. |
 | `appOwnedMemoryBudgetMb?` | `number` | `256` | 제거 가능한 앱 소유 로그, 캐시, blob, continuation payload에 대한 MiB 단위 상한입니다. 범위는 64–4096이며 RSS 상한은 아닙니다. |
+| `metricsExport.enabled?` | `boolean` | `false` | 인증된 `GET /api/metrics`에서 프로세스 로컬 집계 요청 메트릭을 활성화합니다. 재시작이 필요하며, 비활성화 상태에서는 404를 반환하고 exporter 동작을 시작하지 않습니다. |
 | `codexAutoStart?` | `boolean` | `true` | Codex shim이 Codex를 실행하기 전에 `ocx ensure`를 돌리도록 허용합니다. `false`이면 ensure는 아무 작업도 하지 않습니다. |
 | `codexShimAutoRestore?` | `boolean` | `true` | 완료된 외부 Codex 업데이트가 설치된 shim을 교체한 뒤 복원합니다. 환경 변수로 끌 수 있습니다: `OPENCODEX_CODEX_SHIM_AUTO_RESTORE=0`. |
 | `syncResumeHistory?` | `boolean` | `true` | 되돌릴 수 있는 Codex App history 호환성입니다. 원래 메타데이터는 `ocx stop` / `ocx restore`가 백업하고 복원합니다. |
@@ -170,6 +171,12 @@ Codex는 제목과 커밋 메시지 같은 작업에 작은 보조 모델을 사
   }
 }
 ```
+
+### 대상을 쓸 수 없을 때
+
+대체 대상은 운영자가 고른 단 하나의 목적지이므로, 더 이상 해석되지 않는 대상은 다른 곳으로 보내지 않고 보조 호출을 실패시킵니다. 대상의 프로바이더가 비활성화되거나 삭제되었거나 콤보가 사라졌다면, 가로챈 요청은 업스트림에 아무것도 보내기 전에 `409`와 오류 코드 `intercept_target_unavailable`을 반환합니다. 요청 로그에도 같은 코드가 남습니다. 요청은 네이티브 보조 모델로 그대로 넘어가지 않고 기본 프로바이더로 폴백하지도 않습니다. 둘 다 사용자가 고르지 않은 목적지, 자격 증명, 비용으로 바꾸기 때문입니다. 콤보나 라우팅 프로필 대상은 계속 자기 멤버 사이에서 페일오버합니다. `provider/model`처럼 한정된 대상인데 프로바이더 부분이 설정된 어떤 것도 가리키지 않으면 같은 방식으로 처리하고, 설정 API는 이를 저장하지 않습니다. 기본 프로바이더를 통해 해석되는 한정되지 않은 모델 ID는 그대로 유효합니다.
+
+대상이 해석되는 프로바이더를 비활성화(`disabled: true`를 담은 `PATCH /api/providers?name=<provider>`)하거나 삭제해도 작업은 성공하며, 응답에 `dependentShadowIntercept: { model, enabled }`가 추가되고 대시보드에 경고가 표시됩니다. 프로바이더를 다시 켜거나 다른 대상을 고르면 가로채기가 다시 동작합니다.
 
 ## Sidecars
 

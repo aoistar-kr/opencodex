@@ -1,13 +1,25 @@
+<p align="center">
+  <img src="../assets/banner.png" alt="opencodex —— 面向 Codex、Claude Code、Claude Desktop 和 Grok Build 的通用提供商代理" width="100%">
+</p>
+
 <h3 align="center">make codex open!</h3>
 <p align="center"><b>面向 OpenAI Codex、Claude Code、Claude Desktop 和 Grok Build 的通用提供商代理</b><br>
 两条命令，它们就都能跑你指定的任意 LLM。</p>
 
 <p align="center">
   <a href="https://x.com/claudeebum"><img src="https://img.shields.io/badge/%40claudeebum-000000?logo=x&logoColor=white" alt="在 X 上关注 @claudeebum"></a>
+  <a href="https://github.com/lidge-jun/opencodex/releases/latest"><img src="https://img.shields.io/github/v/release/lidge-jun/opencodex?label=desktop&logo=github&color=24292f" alt="最新桌面版发布"></a>
   <a href="https://www.npmjs.com/package/@bitkyc08/opencodex"><img src="https://img.shields.io/npm/v/@bitkyc08/opencodex?color=cb3837&label=npm&logo=npm" alt="npm 版本"></a>
   <a href="https://github.com/lidge-jun/opencodex/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/@bitkyc08/opencodex?color=blue" alt="许可证"></a>
   <img src="https://img.shields.io/node/v/@bitkyc08/opencodex?logo=node.js&label=node" alt="Node 版本">
 </p>
+
+<p align="center">
+  <a href="https://github.com/lidge-jun/opencodex/releases/latest"><img src="../assets/download-macos.svg" alt="下载 macOS 版 OpenCodex" width="220"></a>
+  <a href="https://github.com/lidge-jun/opencodex/releases/latest"><img src="../assets/download-windows.svg" alt="下载 Windows 版 OpenCodex" width="220"></a>
+  <a href="https://github.com/lidge-jun/opencodex/releases/latest"><img src="../assets/download-linux.svg" alt="下载 Linux 版 OpenCodex" width="220"></a>
+</p>
+<p align="center"><sub>桌面应用（测试版）：macOS 通用 <code>.dmg</code> · Windows x64 <code>.msi</code> · Linux x86_64 <code>.AppImage</code> / <code>.deb</code>。更喜欢终端？安装 CLI：</sub></p>
 
 ```bash
 npm install -g @bitkyc08/opencodex
@@ -77,7 +89,29 @@ Codex 认证管理一个 **ChatGPT 账户池**：添加账户，在仪表板中�
 
 ## 快速开始
 
-### 个人安装
+### 桌面应用（测试版）
+
+桌面应用把同一个代理和仪表板装进原生窗口，附带系统托盘和内置的 `ocx`。
+它会连接已在运行的代理，或启动自带的代理；仪表板仍使用代理端口
+（未另行配置时为 **http://localhost:10100**）。从
+[最新发布版本](https://github.com/lidge-jun/opencodex/releases/latest)中选择适合你平台的文件：
+
+| 平台 | 文件 | 说明 |
+|---|---|---|
+| macOS 13+（Apple Silicon 和 Intel） | `OpenCodex-<version>-macos.dmg` | 通用构建，使用 Developer ID 签名并完成公证 |
+| Windows (x64) | `OpenCodex-<version>-windows-x64.msi` | 尚未进行代码签名：SmartScreen 会询问一次，选择 **更多信息 → 仍要运行** |
+| Linux (x86_64) | `OpenCodex-<version>-linux-x86_64.AppImage` 或 `-linux-amd64.deb` | 托盘需要支持 AppIndicator 的桌面环境 |
+
+每个文件在发布页面上都带有对应的 `.sha256`。在 macOS 14+ 上，应用还附带一个
+WidgetKit 扩展，可显示代理状态、今日用量和提供商配额；它所呈现的快照模型位于
+[`app/`](../app)（`MenuBarCore`）。如需自行构建应用，先在仓库根目录运行
+`bun install && bun run build:gui`，然后在
+`desktop/` 中运行：macOS 上用 `bun install && bun run prepare-sidecar && bun run prepare-widget && bun run build:local`，Windows 和 Linux 上用 `bun install && bun run prepare-sidecar && bun run build:local`（小组件步骤只能在 macOS 上执行）。
+[桌面应用指南](https://opencodex.me/zh-cn/guides/desktop-app/)和
+[macOS 菜单栏应用指南](https://opencodex.me/zh-cn/guides/macos-menu-bar/)介绍了首次启动，
+[`AGENTS_INSTALL.md`](../AGENTS_INSTALL.md#where-things-are-installed)列出了写入磁盘的所有内容。
+
+### 个人安装（CLI）
 
 ```bash
 npm install -g @bitkyc08/opencodex   # Node 18+；Bun 运行时会自动捆绑
@@ -89,7 +123,10 @@ ocx start                         # 代理 + 仪表板：localhost:10100
 打开 **http://localhost:10100**，在 Web 仪表板中完成所有配置 —— 添加提供商
 （40 多个内置，或任意 OpenAI 兼容端点）、选择模型、管理账户。随时运行 `ocx gui`
 可重新打开仪表板。
-它还能为 Codex 认证管理一个 **ChatGPT 账户池**。添加多个 ChatGPT / Codex 账户，
+
+### ChatGPT 账户池
+
+opencodex 还能为 Codex 认证管理一个 **ChatGPT 账户池**。添加多个 ChatGPT / Codex 账户，
 在仪表板中刷新它们的 5 小时 / 每周 / 30 天配额。在配额路由下，新会话可以使用
 使用量最低的健康账户；round-robin 和 fill-first 则各自使用自己的策略。现有 Codex
 线程通常会保持对启动它的账户的亲和性，因此长时间的 SSH、tmux 或移动端连接的会话
@@ -123,13 +160,13 @@ ocx start                         # 代理 + 仪表板：localhost:10100
 <details>
 <summary>Docker Compose</summary>
 
-本仓库提供摘要固定、非 root 的 Compose 构建。在宿主机安装 Git 和 Bun 后，每次构建镜像前
-先生成规范兼容性清单，然后通过 stdin 初始化一次数据面令牌，再启动 hub：
+本仓库提供摘要固定、非 root 的 Compose 构建。构建会根据所选 Git 快照自行生成并验证规范兼容性
+清单。本地克隆需要 Git 和 Docker Compose；远程 Git 上下文需要 Docker Compose。两种方式都不需要
+宿主机安装 Bun，也不需要准备步骤。通过 stdin 初始化一次数据面令牌，再启动 hub：
 
 ```bash
 git clone https://github.com/lidge-jun/opencodex.git
 cd opencodex
-bun scripts/generate-compatibility-version.ts
 docker compose build
 openssl rand -hex 32 | docker compose run --rm -T hub bun run docker/bootstrap-token.ts
 docker compose up -d
@@ -140,11 +177,27 @@ curl --fail --silent http://127.0.0.1:10100/readyz
 默认主机绑定是 `127.0.0.1:10100`。远程暴露需要显式
 `OPENCODEX_BIND_ADDRESS=<LAN-or-Tailscale-IP> docker compose up -d`；`0.0.0.0` 会选择加入
 全部主机接口。用防火墙和经过认证的 TLS/tailnet 前端限制访问。
-生成的 JSON 保持未跟踪；它会被复制进镜像，且不包含 `.git`。
-源码变更后请重新生成，并且在生成与构建之间不要改动源码。
-构建会拒绝过期清单、缺失或不匹配的文件、额外源文件以及符号链接。
+生成的 JSON 保持未跟踪。构建上下文只接收 `.git/index` 和 `.git/HEAD`，也就是
+`git ls-files` 读取的清单；其大小约为 1 MB，而不是完整的对象存储。这些文件只能通过只读挂载
+在构建专用的清单阶段中看到，因此没有任何 `COPY` 会包含 `.git`。宿主机上已有的清单只有在
+通过验证后才会被接受；否则构建会自行生成。构建会拒绝过期清单、缺失或不匹配的文件、额外源文件以及符号链接。
 它会核对构建上下文和复制进运行时的每个已记录 SHA-256，包括
 `package.json`、`bun.lock`，以及被明确纳入的 `scripts/model-metadata.source.json`。
+
+远程 Git 上下文需要 BuildKit 保留 Git 元数据。以下 Compose 构建片段会选择远程快照，
+并传入所需的内置参数：
+
+```yaml
+services:
+  hub:
+    pull_policy: build
+    build:
+      context: https://github.com/lidge-jun/opencodex.git#main
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        BUILDKIT_CONTEXT_KEEP_GIT_DIR: "1"
+```
 
 令牌和可变状态留在 `ocx-state` 命名卷中；镜像、Compose 文件、环境或 shell 参数里
 都不会放入任何凭证。提供商配置、经认证的验收检查、远程管理和回滚，见
@@ -159,8 +212,9 @@ curl --fail --silent http://127.0.0.1:10100/readyz
 
 ```bash
 curl -fsSL https://bun.sh/install | bash
-git clone https://github.com/lidge-jun/opencodex.git
+git clone -b dev https://github.com/lidge-jun/opencodex.git
 cd opencodex && ~/.bun/bin/bun install
+~/.bun/bin/bun run build:gui
 ~/.bun/bin/bun run src/cli/index.ts start
 ```
 
@@ -168,8 +222,9 @@ cd opencodex && ~/.bun/bin/bun install
 
 ```powershell
 irm bun.sh/install.ps1 | iex
-git clone https://github.com/lidge-jun/opencodex.git
+git clone -b dev https://github.com/lidge-jun/opencodex.git
 cd opencodex; bun install
+bun run build:gui
 bun run src/cli/index.ts start
 ```
 
@@ -200,13 +255,13 @@ ocx init      # 交互式设置：写入 ~/.opencodex/config.json 并接入 Code
 
 ## 支持平台
 
-| 操作系统 | 状态 | 服务管理器 |
-|---|---|---|
-| macOS (arm64 / x64) | 完整支持 | launchd |
-| Linux (x64 / arm64) | 完整支持 | systemd（用户单元） |
-| Windows (x64) | 完整支持 | 任务计划程序（隐藏） / 可选原生服务 (`--native`，WinSW) |
+| 操作系统 | 状态 | 服务管理器 | 桌面应用（测试版） |
+|---|---|---|---|
+| macOS (arm64 / x64) | 完整支持 | launchd | 通用 `.dmg` |
+| Linux (x64 / arm64) | 完整支持 | systemd（用户单元） | x86_64 `.AppImage` / `.deb` |
+| Windows (x64) | 完整支持 | 任务计划程序（隐藏） / 可选原生服务 (`--native`，WinSW) | x64 `.msi` |
 
-需要 [Node](https://nodejs.org) 18+。Bun 运行时在 `npm install` 时捆绑 —— 无需单独安装
+CLI 安装需要 [Node](https://nodejs.org) 18+；桌面应用既不需要 Node 也不需要 Bun。Bun 运行时在 `npm install` 时捆绑 —— 无需单独安装
 Bun，Windows 也不需要 WSL。如果 npm 拦截了捆绑运行时的安装脚本，见
 [安装文档](https://opencodex.me/zh-cn/getting-started/installation/)。
 
@@ -288,7 +343,7 @@ Qwen Cloud、Qoder Global 和 CN（官方 PAT + CLI）、SiliconFlow，以及更
 
 ```bash
 ocx init                       # 交互式设置（写入配置、接入 Codex、提供 shim）
-ocx start [--port 10100]       # 在前台启动代理
+ocx start [--port 10100] [--socks5 [host:port] | --socks5-off]  # SOCKS5 默认为 socks5://127.0.0.1:10808
 ocx stop                       # 停止并恢复原生 Codex
 ocx service [install|repair|restart|start|stop|status|uninstall|remove]  # 后台服务
 ocx codex-shim install         # 每当启动 `codex` 时按需启动代理
@@ -303,8 +358,8 @@ ocx v2 <...>                   # 多智能体 v1/v2 表面控制
 ocx update [--tag preview]     # 更新 opencodex
 ```
 
-未固定端口的启动在首选端口被占用时可能改选其他空闲端口；显式 `--port`
-绝不会换端口。完整参考：[CLI 文档](https://opencodex.me/zh-cn/reference/cli/)。
+首选端口被占用时，启动会停止并指出占用者，而不会改用其他端口，因此绝不会在第一个代理旁留下另一个
+运行中的代理。请释放该端口，或用 `--port` 指定其他端口。完整参考：[CLI 文档](https://opencodex.me/zh-cn/reference/cli/)。
 
 ### 健康与就绪
 

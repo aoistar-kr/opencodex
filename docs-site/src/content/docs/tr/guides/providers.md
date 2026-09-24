@@ -52,7 +52,7 @@ işaretler.
 Bu tahmin yalnızca görüntüleme amaçlıdır. Hesap seçimini, oturum bağlılığını,
 otomatik geçişi, soğuma sürelerini veya diğer herhangi bir yönlendirme kararını
 değiştirmez. Bireysel hesap durumu ve yönlendirme kontrolleri için [Codex Auth
-hesap havuzu](/tr/guides/web-dashboard/#codex-auth-ve-hesap-havuzlari) bölümünü
+hesap havuzu](/tr/guides/web-dashboard/#codex-auth-ve-hesap-havuzları) bölümünü
 kullanın.
 
 Sevk edilen v1 yapılandırmaları otomatik olarak işaretçi 2'ye ve tek bir seçenek
@@ -107,8 +107,8 @@ GPT-5.6 Sol/Terra/Luna slug'larını (`gpt-5.6-sol`, `gpt-5.6-terra`,
 
 ## 2. Hesap girişi (OAuth)
 
-Sekiz sağlayıcı önayarı OAuth girişini kullanır — artı deneysel resmi olmayan
-bir cihaz akışı köprüsü aracılığıyla GitHub Copilot. opencodex bunların kimlik
+Sağlayıcı önayarları hesap girişini kullanabilir — deneysel resmi olmayan bir cihaz
+akışı köprüsü aracılığıyla GitHub Copilot da buna dahildir. opencodex bunların kimlik
 bilgilerini `~/.opencodex/auth.json` içinde saklar ve otomatik olarak yeniler.
 Oturum açma CLI'sı `ocx login codex` komutunu da kabul eder; bu yukarıdaki sağlayıcılardan biri
 değildir: komut Codex hesap havuzu girişine yönlendirilir (`ocx account login codex` ile aynı akış).
@@ -134,7 +134,8 @@ ocx logout <saglayici>
 | --- | --- | --- | --- |
 | `xai` | `openai-chat` | `https://cli-chat-proxy.grok.com/v1` | OAuth ayrı Grok CLI abonelik ağ geçidini kullanır. API anahtarı geçersiz kılması `https://api.x.ai/v1` kullanır ve Priority Processing ekleyebilir. Canlı öncelikli Grok kataloğu; `grok-4.5` geri dönüş varsayılanıdır. |
 | `anthropic` | `anthropic` | `https://api.anthropic.com` | Claude modelleri; canlı model listesi `/v1/models` üzerinden getirilir. |
-| `kimi` | `openai-chat` | `https://api.kimi.com/coding/v1` | Kimi K2.7/K2.6/K2.5 kodlama modelleri. |
+| `kimi` | `openai-chat` | `https://api.kimi.com/coding/v1` | Kimi Code modelleri. `kimi-for-coding` artık K2.8 Preview modelini gösterir; 1 milyon token bağlam, `low`/`high`/`max` akıl yürütme ve metin ile görsel girdisi sunar. `k3-256k` için bağlam sınırı sabit 256K'dır. |
+| `kimi-responses` | `openai-responses` | `https://api.kimi.com/coding/v1` | `kimi` ile aynı OAuth oturumunu ve model listesini Responses üzerinden kullanır. Akıl yürütme içeriği sunucuda şifreli kalır; araç çağrıları ve sonuçları görünürdür. |
 | `nous` | `openai-chat` | `https://inference-api.nousresearch.com/v1` | Nous Research abonelik ağ geçidi (Hermes Agent'ın kullandığı aynı arka uç). `portal.nousresearch.com`'a karşı cihaz yetkilendirmesi girişi; erişim belirteci istek başına çıkarım JWT'sidir. Oturum açmış hesaptan canlı olarak keşfedilen karışık ücretli + `:free` model kataloğu (`tencent/hy3:free`, `stepfun/step-3.7-flash:free`, ...). Yenileme belirteçleri tek kullanımlıktır ve her yenilemede döndürülür. |
 | `kiro` | `kiro` | `https://runtime.us-east-1.kiro.dev` | İlk oturum açma, kurulu ve oturum açılmış `kiro-cli` oturumunu içe aktarır (Unix'te `curl -fsSL https://cli.kiro.dev/install` &#124; `bash` ile kurun; Windows PowerShell'de `irm 'https://cli.kiro.dev/install.ps1'` &#124; `iex` kullanın; ardından `kiro-cli login` çalıştırın). **Hesap ekle**, `kiro-cli` oturumunu kapatır, `kiro-cli` tarafından kullanılan hesabı değiştiren yeni bir tarayıcı girişi başlatır ve hesap kapsamlı profil meta verilerini saklar. Mevcut OpenCodex hesapları korunur ve iptal veya başarısızlık önceki `kiro-cli` oturumunu geri yükler. |
 | `google-antigravity` | `google` | `https://daily-cloudcode-pa.googleapis.com` | Cloud Code Assist hattı üzerinden Google OAuth. Canlı keşif CCA'nın kimlik doğrulamalı `v1internal:fetchAvailableModels` uç noktasını kullanır ve oturum açmış hesap için kullanılabilir olan ajan modellerini yayınlar; sürdürülen katalog geri dönüş olarak kalır. |
@@ -143,6 +144,24 @@ ocx logout <saglayici>
 | `github-copilot` | `openai-chat` | `https://api.githubcopilot.com` | Deneysel. GitHub cihaz akışı + `copilot_internal` değişimi (VS Code OAuth istemcisi). Aktif bir Copilot aboneliği gerektirir; resmi bir üçüncü taraf API değildir. |
 
 Google Antigravity hesap ve sağlayıcı kota sorguları, model listesine geri dönüş dahil sabit Google uç noktalarını kullanır. Bu hedefler için şeffaf Fake-IP DNS desteklenirken TLS doğrulaması, yönlendirme reddi ve özel adres kontrolleri korunur. Özel base URL yalnızca model isteklerini değiştirir; `NO_PROXY` doğrudan bağlantı politikasını korur.
+
+### Google araç şeması kayıp tanılaması
+
+Google araç bildirimleri seçilen uç nokta sınıfına göre derlenir. Sağlayıcı hata ayıklaması
+`ocx debug provider on`, kontrol panelindeki Logs anahtarı veya `OCX_DEBUG=1` ile açıldığında,
+politika yokken veya `compatible` iken uyumluluk dönüşümü sırasında oluşan şema kaybı bir
+`[ocx:google:google-tool-schema-loss]` kaydı yayınlar
+(`ocx debug provider logs -f` ile takip edin). Kayıt yalnızca rapor sürümünü, uç nokta sınıfını,
+bir `lossy` göstergesini, sınırlı bir belirsiz karşılaştırma sayısını, sınırlı sayımlara sahip sabit kayıp kategorilerini ve kesilme işaretini
+taşır. Araç ve özellik adları, yollar, değerler ve şema metni hiçbir zaman dahil edilmez. Politika
+yoksa veya `compatible` ise dönüşüm reddedilmeden gözlemlenir. `reject-lossy` altında, ilk derleme
+kayıplıysa veya sınırlı karşılaştırmanın sonucu belirsizse gönderimden önce reddedilir; reddedilen
+istek için ayrı bir kayıp kaydı yayınlanmaz.
+`reject-lossy` altında, kısıtları kaldıracak bir Vertex veya Cloud Code Assist onarımı
+aynı şekilde içeriksiz bir `google-tool-schema-repair` kaydı üretir ve değiştirilmiş gönderim yapmadan
+özgün 400 yanıtını döndürür; politika yoksa veya `compatible` ise onarılan istek daha önce olduğu gibi
+yeniden gönderilir. Doğrudan AI Studio bu onarımı yapmaz. Yerel çıktı şemaları iki politika yolunun da
+dışındadır. [Hata ayıklama komutu başvurusuna](/tr/reference/cli/agents/) bakın.
 
 
 Uç bir Nous yenileme hatasından sonra yeniden kimlik doğrulamak için `ocx login
@@ -156,6 +175,13 @@ oturum/görev anahtarı belgelerken, anahtarsız istekler anahtarsız kalır. Da
 edilmiş bir yukarı akış alanı reddederse opencodex bunu kaldırmaz ve yeniden
 denemez veya kayıtlı yapılandırmayı değiştirmez. Diğer sağlayıcılar varsayılan
 olarak reddedilir kalır.
+
+`kimi`, `kimi-code` ve `kimi-responses` için `k3`, `k3[1m]` ve `k3-256k` maliyetleri,
+varsayılan beş dakikalık önbellek yazma ücretini kullanan [API fiyatlarına](https://platform.kimi.ai/docs/pricing/chat)
+dayalı tahminlerdir. Code Plan faturasını veya kotasını yansıtmazlar: K3'ün 1M sürümü,
+`k3-256k` modelinin yaklaşık iki katı kota tüketir. `kimi-for-coding` artık K2.8 Preview'a
+yönlendiği için eski K2.7 fiyatı kullanılmaz. Kullanıcı `modelCosts` tanımlamadıkça maliyet
+bilinmez; bilinmeyen maliyetleri dışlayan yönlendirme kuralları bu takma adı eleyebilir.
 
 OAuth'u [web kontrol panelinden](/tr/guides/web-dashboard/) de
 başlatabilirsiniz.
@@ -298,7 +324,7 @@ olmayan bir makineden oturum açmak bundan etkilenmez.
 
 ## 3. API anahtarı kataloğu
 
-opencodex 79 yerleşik önayar ile birlikte gelir: 67 anahtar tabanlı, sekiz
+opencodex 97 yerleşik önayar ile birlikte gelir: 80 anahtar tabanlı, 13
 OAuth, üç yerel ve bir varsayılan ChatGPT iletme önayarı. Kontrol panelinin
 **Sağlayıcı ekle** seçicisi bir anahtar sağlayıcısının kontrol panelini açar,
 anahtarı doğrular ve saklar; doğrulama sağlayıcıya özgüdür. Dikkate değer
@@ -347,6 +373,7 @@ yalnızca Cline IDE/CLI içinde mevcuttur; `minimax/minimax-m2.5` belgelenmiş A
 | Command Code | `https://api.commandcode.ai/provider/v1` |
 | SambaNova Cloud | `https://api.sambanova.ai/v1` |
 | Nebius Token Factory | `https://api.tokenfactory.nebius.com/v1` |
+| Crusoe | `https://api.inference.crusoecloud.com/v1` |
 | DigitalOcean Serverless Inference | `https://inference.do-ai.run/v1` |
 | Scaleway Generative APIs | `https://api.scaleway.ai/v1` |
 | Featherless AI | `https://api.featherless.ai/v1` |
@@ -400,9 +427,14 @@ Aynı modellere giden desteklenen yol, [opencode.ai/auth](https://opencode.ai/au
 bir üçüncü taraf yolu yayımlarsa opencodex bunu izleyebilir; o zamana kadar önayar
 kısıtlamayı belgeler. Yukarı akış koşulları: [opencode.ai/docs/zen](https://opencode.ai/docs/zen/).
 
-Çoğu bir taşıyıcı anahtarla `openai-chat` adaptörünü kullanır; yalnızca
-Anthropic uyumlu bir uç nokta sunan birkaç tanesi (örneğin **Xiaomi MiMo**)
-`anthropic` adaptörünü (`x-api-key`) kullanır. Volcengine Agent Plan,
+Çoğu, taşıyıcı anahtarla `openai-chat` adaptörünü kullanır; **Xiaomi MiMo** (`xiaomi`)
+gibi Anthropic uyumlu önayarlar `anthropic` adaptörünü (`x-api-key`) kullanır.
+Xiaomi'nin ayrıca bir OpenAI Chat önayarı (`xiaomi-mimo`) ve bir token planı önayarı
+(`mimo`) vardır. Üçü de varsayılan olarak MiMo V2.6 kullanır (`mimo-v2.6-pro`;
+`xiaomi-mimo` için `mimo-v2.6-flash`). Xiaomi, `mimo-v2.5` ve `mimo-v2.5-pro`
+modellerini 2026-10-21 tarihinde yönlendirme olmadan kullanımdan kaldıracak;
+bu tarihten önce kaydedilmiş bir V2.5 varsayılanını değiştirin. opencodex bunu
+sizin yerinize yeniden yazmaz. Volcengine Agent Plan,
 `openai-responses` aracılığıyla yerel Responses uç noktasını kullanır. Yerleşik
 DeepSeek önayarı da `deepseek-v4-flash`'ı yerel Responses uç noktası üzerinden
 yönlendirir ve yukarı akış SSE akışını etkin tutar. Bu model tüm çıktı öğelerini
@@ -454,17 +486,34 @@ kadar gizli kalır. [Nscale Console](https://console.nscale.com) içinde bir
 Nscale servis belirteci oluşturun; [Vultr Console](https://my.vultr.com)
 içindeki abonelik genel bakışından Vultr'un çıkarım anahtarını kopyalayın.
 
-**Command Code keşfi.** Önayar, sabit Sağlayıcı API ana bilgisayarından Command
-Code'un `/provider/v1/models` listesini okur, sağlayıcı yerel kimliklerini korur
-ve keşfi 256 KiB ve 256 ham satırla sınırlar. `ocx login command-code`, tarayıcı
-oturum açma yoluyla OAuth'u destekler (mevcut Command Code CLI kullanıcıları
-için `~/.commandcode/auth.json`'dan isteğe bağlı yerel CLI kimlik bilgisi içe
-aktarma ile); model kataloğu hesap kapsamlıdır ve oturum açtıktan sonra kimlik
-doğrulamalı keşif uç noktasından gelir. Sohbet istekleri yapılandırılmış Bearer
-anahtarını kullanır. [Command Code Studio](https://commandcode.ai/studio/)
-üzerinden anahtarlar oluşturun.
+**Command Code keşfi.** Önayar, sabit Provider API sunucusundan Command Code'un
+`/provider/v1/models` listesini okur, sağlayıcının özgün model kimliklerini korur
+ve keşfi 256 KiB ile 256 ham satırla sınırlar. `ocx login command-code`, tarayıcıda
+oturum açarak OAuth kullanımını destekler; mevcut Command Code CLI kullanıcıları
+isterse yerel kimlik bilgilerini `~/.commandcode/auth.json` dosyasından içe aktarabilir.
+Model kataloğu hesaba özeldir ve oturum açıldıktan sonra kimlik doğrulamalı keşif
+uç noktasından alınır. Provider API önayarı (`commandcode`) etkin yapılandırılmış
+anahtarı gönderir: çoğu model kimliği Bearer başlığıyla Chat Completions kullanırken
+`claude-*` kimlikleri `x-api-key` ile Anthropic Messages kullanır; çünkü Command Code
+bu modelleri yalnızca `/provider/v1/messages` üzerinden sunar. `commandcode` adını
+başka bir uç nokta için yeniden kullanan sağlayıcı kendi iletişim biçimini korur.
+OAuth önayarı (`command-code`), kimlik doğrulamalı keşif için kayıtlı hesap Bearer
+belirtecini kullanır ve `/alpha/generate` üzerinden NDJSON biçiminde akışlı çıktı
+üretir. Ağ geçidinin metin olarak yinelediği MiMo araç çağrısı işaretlemesi, gerçek
+bir çağrıyı yineliyorsa kaldırılır. MiMo modellerinde, yerel bir karşılığı olmayan
+tamamlanmış bir bildirilmiş araç çağrısı yalnızca akış sorunsuz bittiğinde geri yüklenir;
+kesintiye uğrayan veya filtrelenen turlarda işaretleme metin olarak kalır.
+Provider API anahtarlarını [Command Code Studio](https://commandcode.ai/studio/)
+üzerinden oluşturun.
 
 **Command Code kotası.** Pano ve `ocx account refresh`, kanonik `https://api.commandcode.ai` ana bilgisayarında `/alpha/billing/credits` pencerelerini (5 saat ve haftalık) sorgular. OAuth önayarı (`command-code`) kayıtlı hesap bearer'ını kullanır; Provider-API anahtar önayarı (`commandcode`) etkin yapılandırılmış anahtarı kullanır. Kullanıcının değiştirdiği benzer bir temel URL asla sorgulanmaz. Command Code dönem harcamasını da bildirirse kalan monthly / purchased / free credits USD penceresi olarak gösterilir.
+
+OrcaRouter tarayıcı oturum açma akışında (`ocx login orcarouter-oauth`), anahtar değişimi isteğinin
+başarılı yanıt gövdesi en fazla 64 KiB boyutunda geçerli UTF-8 JSON olmalıdır. Bu isteğin mevcut
+30 saniyelik süresi, yanıt başlıkları ile gövdenin tamamının alınmasını kapsar; sınırı aşan veya bozuk
+gövdeler anahtar kaydedilmeden önce reddedilir. Bu sınırlar yalnızca oturum açma sırasındaki anahtar
+değişimine uygulanır, çıkarım isteği yüklerine uygulanmaz. `scope` doğrulaması değişmez: alanın
+bulunmamasına izin verilir, açıkça geçersiz bir değer ise reddedilir.
 
 **SambaNova Cloud keşfi.** Önayar, sabit API ana bilgisayarından SambaNova
 Cloud'un genel `/v1/models` listesini okur, sağlayıcı yerel kimliklerini korur
@@ -483,6 +532,19 @@ kimlikleri artı bildirilen bağlam ve girdi modalitesi meta verilerini korur ve
 keşfi 512 KiB ve 512 ham satırla sınırlar. Özel dağıtım ana bilgisayarları
 kapsam dışıdır. [Nebius Token Factory](https://tokenfactory.nebius.com) içinde
 anahtarlar oluşturun.
+
+**Crusoe keşfi.** Anahtar tabanlı önayar `openai-chat` adaptörünü kullanır ve Bearer anahtarını
+yalnızca Crusoe'nun sabit Serverless Inference ana bilgisayarına gönderir. `/v1/models` kimliği
+doğrulanmamış istekleri 401 ile reddeder, bu nedenle başarılı bir liste yanıtı anahtar doğrulaması
+sayılır. Keşif, `zai-org/GLM-5.3` ve `moonshotai/Kimi-K2.6` gibi eğik çizgili yerel kimlikleri Crusoe'nun
+döndürdüğü gibi korur ve 256 KiB ile 256 ham satırla sınırlandırılır. Yalnızca `is_public: true` ve text veya multimodal bir `architecture.modality` bildiren satırlar tutulur; hesaba özel dağıtımlar ile embedding veya medya satırları dışlanır. Akıl yürütme modelleri
+düşüncelerini Chat Completions `reasoning` alanında döndürür ve adaptör bu alanı okur.
+`reasoning_effort` kademelerini (`low`, `medium`, `high`) yalnızca `openai/gpt-oss-120b` kabul eder;
+diğer akıl yürütme modelleri bu alanı açma/kapama anahtarı olarak ele alır, bu yüzden önayar sağlayıcı
+genelinde effort kademesi veya paralel araç çağrısı tanıtmaz. Hız sınırları proje ve model başına
+uygulanır (aşımda 429, paylaşılan dağıtım ölçeklenirken 503) ve yeni hesaplar 5 $ ücretsiz kredi ile
+başlar. [Crusoe Cloud konsolunda](https://console.crusoecloud.com) Intelligence Foundry > Inference
+altında bir anahtar oluşturun.
 
 **DigitalOcean keşfi.** Önayar, sabit paylaşılan Sunucusuz Çıkarım ana
 bilgisayarına karşı bir model erişim anahtarı kullanır ve kimlik doğrulamalı
@@ -579,7 +641,7 @@ anahtarları değiştirebilir veya kaldırabilir; yönetim API'si
 Kontrol panelini açmadan aynı Codex, OAuth ve API anahtarı havuzlarını incelemek
 veya değiştirmek için `ocx account list`, `ocx account current` ve `ocx account
 use` komutlarını kullanın. Komutlar, JSON çıktısı ve yeni oturum davranışı için
-[CLI referansına](/tr/reference/cli/#ocx-account-subcommand) bakın.
+[CLI referansına](/tr/reference/cli/providers-accounts/#ocx-account-alt-komut) bakın.
 
 ### GPT-5.6 önizleme yolları
 
@@ -629,9 +691,14 @@ init`'te ve kontrol paneli Sağlayıcı Ekle seçicisinde Cursor'ın statik geri
 dönüş model kataloğu meta verileriyle deneysel bir yerel yapılandırma girdisi
 olarak görünür. Bir Cursor erişim belirteci yapılandırıldığında opencodex
 Cursor'ın canlı HTTP/2 aktarımını kullanır. Paketlenmiş geri dönüş tohumu
-`gpt-5.6-sol` / `terra` / `luna` (1M bağlam), `grok-4.5` / `grok-4.5-fast`
+`gpt-5.6-sol` / `terra` / `luna` (1M bağlam), Grok 4.5, 4.6 ve 4.7 için normal/Fast satırları
 (500K) ve `kimi-k3` (262K) içerir; canlı keşif hesap için hangilerinin görünür
-kalacağına karar verir. Cursor, Kimi K3'ü yalnızca çaba sonekli hat kimlikleri
+kalacağına karar verir. Grok 4.6 ve 4.7, normal ve Fast biçimlerinde `low` /
+`medium` / `high` / `xhigh` sunarken 4.5 `high` ile sınırlıdır. Grok 4.5 ve 4.6'nın Fast istekleri,
+eşleşen temel modeli ayrı `effort` ve `fast=true` `requested_model` parametreleriyle gönderir; bunların
+düzleştirilmiş `cursor-grok-{version}-{effort}-fast` kimlikleri yalnızca keşif ve model seçimi içindir.
+Grok 4.7, `cursor-` öneki olmadan listelenir ve `grok-4.7-{effort}-fast` kimliğini doğrudan gönderir.
+Cursor, Kimi K3'ü yalnızca çaba sonekli hat kimlikleri
 olarak sunar, bu nedenle `cursor/kimi-k3` bir `low` / `high` / `max` merdiveni
 gösterir ve modelin belgelenmiş API varsayılanıyla eşleşecek şekilde varsayılan
 olarak `max` olur. Cursor sunucu güdümlü yerel
@@ -640,7 +707,7 @@ okuma/yazma/silme/ls/grep/shell/fetch yürütmesi varsayılan olarak devre dış
 denemeler için (veya kontrol panelinde **Sağlayıcılar → Cursor → JSON Düzenle**
 aracılığıyla) `~/.opencodex/config.json` içindeki `providers.cursor` nesnesinde
 `unsafeAllowNativeLocalExec: true` ayarlayın. Tam bir örnek için [Yapılandırma
-referansı](/tr/reference/configuration/#cursor-saglayicisi-adapter-cursor)
+referansı](/tr/reference/configuration/providers/#cursor-sağlayıcısı-adapter-cursor)
 bölümüne bakın. MCP, ekran kaydı ve bilgisayar kullanımı yürütücü kancaları
 olarak mevcuttur; yapılandırılmış bir yerel yürütücü olmadan opencodex isteği
 politika engellemek yerine tipli yürütücü yok sonuçları döndürür. Cursor OAuth

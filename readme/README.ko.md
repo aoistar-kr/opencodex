@@ -1,13 +1,25 @@
+<p align="center">
+  <img src="../assets/banner.png" alt="opencodex — Codex, Claude Code, Claude Desktop, Grok Build를 위한 범용 프로바이더 프록시" width="100%">
+</p>
+
 <h3 align="center">make codex open!</h3>
 <p align="center"><b>OpenAI Codex, Claude Code, Claude Desktop, Grok Build를 위한 범용 프로바이더 프록시</b><br>
 명령어 두 줄이면, 그 모두가 지정한 LLM으로 돌아갑니다.</p>
 
 <p align="center">
   <a href="https://x.com/claudeebum"><img src="https://img.shields.io/badge/%40claudeebum-000000?logo=x&logoColor=white" alt="X에서 @claudeebum 팔로우"></a>
+  <a href="https://github.com/lidge-jun/opencodex/releases/latest"><img src="https://img.shields.io/github/v/release/lidge-jun/opencodex?label=desktop&logo=github&color=24292f" alt="최신 데스크톱 릴리스"></a>
   <a href="https://www.npmjs.com/package/@bitkyc08/opencodex"><img src="https://img.shields.io/npm/v/@bitkyc08/opencodex?color=cb3837&label=npm&logo=npm" alt="npm version"></a>
   <a href="https://github.com/lidge-jun/opencodex/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/@bitkyc08/opencodex?color=blue" alt="license"></a>
   <img src="https://img.shields.io/node/v/@bitkyc08/opencodex?logo=node.js&label=node" alt="node version">
 </p>
+
+<p align="center">
+  <a href="https://github.com/lidge-jun/opencodex/releases/latest"><img src="../assets/download-macos.svg" alt="macOS용 OpenCodex 다운로드" width="220"></a>
+  <a href="https://github.com/lidge-jun/opencodex/releases/latest"><img src="../assets/download-windows.svg" alt="Windows용 OpenCodex 다운로드" width="220"></a>
+  <a href="https://github.com/lidge-jun/opencodex/releases/latest"><img src="../assets/download-linux.svg" alt="Linux용 OpenCodex 다운로드" width="220"></a>
+</p>
+<p align="center"><sub>데스크톱 앱 (베타): macOS 유니버설 <code>.dmg</code> · Windows x64 <code>.msi</code> · Linux x86_64 <code>.AppImage</code> / <code>.deb</code>. 터미널이 더 편하다면 CLI를 설치하세요:</sub></p>
 
 ```bash
 npm install -g @bitkyc08/opencodex
@@ -78,7 +90,29 @@ DeepSeek, Kimi, Qwen, Ollama를 비롯한 어떤 LLM이든 Codex, Claude Code, C
 
 ## 빠른 시작
 
-### 개인 설치
+### 데스크톱 앱 (베타)
+
+데스크톱 앱은 같은 프록시와 대시보드를 네이티브 창에 담은 것으로, 트레이와 번들된 `ocx`를 갖춥니다.
+이미 실행 중인 프록시에 붙거나 번들된 프록시를 시작하며, 대시보드는 프록시 포트에서 열립니다
+(다른 포트를 설정하지 않았다면 **http://localhost:10100**). 플랫폼에 맞는 파일을
+[최신 릴리스](https://github.com/lidge-jun/opencodex/releases/latest)에서 고르세요.
+
+| 플랫폼 | 파일 | 참고 |
+|---|---|---|
+| macOS 13+ (Apple Silicon 및 Intel) | `OpenCodex-<version>-macos.dmg` | 유니버설 빌드, Developer ID로 서명 및 공증됨 |
+| Windows (x64) | `OpenCodex-<version>-windows-x64.msi` | 아직 코드 서명되지 않음: SmartScreen이 한 번 물으면 **추가 정보 → 실행**을 선택 |
+| Linux (x86_64) | `OpenCodex-<version>-linux-x86_64.AppImage` 또는 `-linux-amd64.deb` | 트레이는 AppIndicator를 지원하는 데스크톱이 필요 |
+
+릴리스 페이지에서 모든 파일 옆에 `.sha256`이 함께 있습니다. macOS 14 이상에서는 프록시 상태,
+오늘의 사용량, 프로바이더 쿼터를 보여 주는 WidgetKit 확장도 함께 설치됩니다. 위젯이 그리는
+스냅샷 모델은 [`app/`](../app)의 `MenuBarCore`에 있습니다. 앱을 직접 빌드하려면 저장소 루트에서
+`bun install && bun run build:gui`를 실행한 다음,
+`desktop/`에서 macOS라면 `bun install && bun run prepare-sidecar && bun run prepare-widget && bun run build:local`을, Windows와 Linux라면 `bun install && bun run prepare-sidecar && bun run build:local`을 실행하세요. 위젯 빌드 단계는 macOS에서만 돌아갑니다.
+[데스크톱 앱 가이드](https://opencodex.me/ko/guides/desktop-app/)와
+[macOS 메뉴 막대 앱 가이드](https://opencodex.me/ko/guides/macos-menu-bar/)에서 첫 실행 안내를 볼 수 있고,
+[`AGENTS_INSTALL.md`](../AGENTS_INSTALL.md#where-things-are-installed)에는 디스크에 쓰는 모든 항목이 정리되어 있습니다.
+
+### 개인 설치 (CLI)
 
 ```bash
 npm install -g @bitkyc08/opencodex   # Node 18+; Bun 런타임은 자동으로 번들됩니다
@@ -89,12 +123,15 @@ ocx start                         # 프록시 + 대시보드: localhost:10100
 
 **http://localhost:10100**을 열고 웹 대시보드에서 전부 설정하세요. 프로바이더 추가(내장 40개 이상,
 또는 OpenAI 호환 엔드포인트), 모델 선택, 계정 관리까지 모두 여기서 합니다. `ocx gui`로 대시보드를 언제든 다시 엽니다.
-Codex 인증용 **ChatGPT 계정 풀**도 관리합니다. ChatGPT / Codex 계정을 여러 개 넣고, 대시보드에서
-5시간 / 주간 / 30일 쿼터를 갱신합니다. 쿼터 라우팅을 켜면 새 세션은 사용량이 가장 적은 정상 계정을 쓰고,
-round-robin과 fill-first는 각자 정책을 따릅니다. 기존 Codex 스레드는 기본적으로 시작한 계정에 붙어
-있어서, 긴 SSH·tmux·모바일 세션이 대화 도중에 계정을 바꾸지 않습니다. 다만 쿼터 재평가, failover,
-계정 제외, affinity 만료, 401/403·429 복구가 일어나면 다시 묶일 수 있습니다. Codex Desktop 로그인처럼
-다른 계정이 소진된 뒤에만 쓰고 싶은 계정이 있으면, 계정에 선택 순서를 지정하세요.
+
+### ChatGPT 계정 풀
+
+opencodex는 Codex 인증용 **ChatGPT 계정 풀**도 관리합니다. ChatGPT / Codex 계정을 여러 개 넣고,
+대시보드에서 5시간 / 주간 / 30일 쿼터를 갱신합니다. 쿼터 라우팅을 켜면 새 세션은 사용량이 가장 적은
+정상 계정을 쓰고, round-robin과 fill-first는 각자 정책을 따릅니다. 기존 Codex 스레드는 기본적으로
+시작한 계정에 붙어 있어서 긴 SSH·tmux·모바일 세션이 대화 도중에 계정을 바꾸지 않습니다. 다만 쿼터
+재평가, failover, 계정 제외, affinity 만료, 401/403·429 복구가 일어나면 다시 묶일 수 있습니다.
+Codex Desktop 로그인처럼 다른 계정이 소진된 뒤에만 쓰고 싶은 계정이 있으면 계정에 선택 순서를 지정하세요.
 
 ### 스폰서
 
@@ -122,14 +159,14 @@ round-robin과 fill-first는 각자 정책을 따릅니다. 기존 Codex 스레�
 <details>
 <summary>Docker Compose</summary>
 
-이 저장소는 digest로 고정하고 root를 쓰지 않는 Compose 빌드를 제공합니다. 호스트에 Git과 Bun이
-설치되어 있으면, 이미지를 빌드할 때마다 정식 호환성 매니페스트를 만든 다음, stdin으로 데이터 플레인
-토큰을 한 번 초기화하고 허브를 시작하세요:
+이 저장소는 digest로 고정하고 root를 쓰지 않는 Compose 빌드를 제공합니다. 빌드는 선택한 Git 스냅샷에서
+정식 호환성 매니페스트를 생성하고 검증합니다. 로컬 클론에는 Git과 Docker Compose가 필요하고, 원격 Git
+컨텍스트에는 Docker Compose가 필요합니다. 어느 쪽도 호스트의 Bun이나 준비 단계는 필요하지 않습니다.
+stdin으로 데이터 플레인 토큰을 한 번 초기화하고 허브를 시작하세요:
 
 ```bash
 git clone https://github.com/lidge-jun/opencodex.git
 cd opencodex
-bun scripts/generate-compatibility-version.ts
 docker compose build
 openssl rand -hex 32 | docker compose run --rm -T hub bun run docker/bootstrap-token.ts
 docker compose up -d
@@ -140,10 +177,27 @@ curl --fail --silent http://127.0.0.1:10100/readyz
 기본 호스트 바인딩은 `127.0.0.1:10100`입니다. 원격 노출은
 `OPENCODEX_BIND_ADDRESS=<LAN-or-Tailscale-IP> docker compose up -d`를 명시해야 하며, `0.0.0.0`은
 호스트의 모든 인터페이스를 엽니다. 방화벽과 인증된 TLS/tailnet 프론트엔드로 접근을 제한하세요.
-생성된 JSON은 추적하지 않으며, `.git` 없이 이미지로 복사됩니다. 소스가 바뀌면 다시 생성하고,
-생성과 빌드 사이에 소스를 고치지 마세요. 빌드는 낡은 매니페스트, 없거나 불일치하는 파일, 여분의
-소스 파일, 심볼릭 링크를 거부합니다. 기록된 SHA-256을 빌드 컨텍스트와 복사된 런타임 파일
+생성된 JSON은 추적하지 않습니다. 빌드 컨텍스트에는 `git ls-files`가 인벤토리를 읽는 `.git/index`와
+`.git/HEAD`만 들어갑니다. 전체 오브젝트 저장소 대신 약 1 MB이며, 읽기 전용 마운트를 통해 빌드 전용
+매니페스트 단계에서만 볼 수 있으므로 어떤 `COPY`에도 `.git`이 포함되지 않습니다. 호스트에서 이미 생성한
+매니페스트는 검증을 통과해야만 사용하고, 그렇지 않으면 빌드가 직접 생성합니다. 빌드는 낡은 매니페스트,
+없거나 불일치하는 파일, 여분의 소스 파일, 심볼릭 링크를 거부합니다. 기록된 SHA-256을 빌드 컨텍스트와 복사된 런타임 파일
 (`package.json`, `bun.lock`, 특별히 포함된 `scripts/model-metadata.source.json`)과 대조합니다.
+
+원격 Git 컨텍스트에서는 BuildKit이 Git 메타데이터를 유지해야 합니다. 다음 Compose 빌드 조각은 원격
+스냅샷을 선택하고 필요한 기본 인자를 전달합니다:
+
+```yaml
+services:
+  hub:
+    pull_policy: build
+    build:
+      context: https://github.com/lidge-jun/opencodex.git#main
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        BUILDKIT_CONTEXT_KEEP_GIT_DIR: "1"
+```
 
 토큰과 가변 상태는 `ocx-state` named volume에 남습니다. 이미지, Compose 파일, 환경, 셸 인자에는
 자격 증명을 넣지 않습니다. 프로바이더 설정, 인증된 수락 검사, 원격 관리, 롤백은
@@ -158,8 +212,9 @@ curl --fail --silent http://127.0.0.1:10100/readyz
 
 ```bash
 curl -fsSL https://bun.sh/install | bash
-git clone https://github.com/lidge-jun/opencodex.git
+git clone -b dev https://github.com/lidge-jun/opencodex.git
 cd opencodex && ~/.bun/bin/bun install
+~/.bun/bin/bun run build:gui
 ~/.bun/bin/bun run src/cli/index.ts start
 ```
 
@@ -167,8 +222,9 @@ cd opencodex && ~/.bun/bin/bun install
 
 ```powershell
 irm bun.sh/install.ps1 | iex
-git clone https://github.com/lidge-jun/opencodex.git
+git clone -b dev https://github.com/lidge-jun/opencodex.git
 cd opencodex; bun install
+bun run build:gui
 bun run src/cli/index.ts start
 ```
 
@@ -199,13 +255,13 @@ ocx init      # 대화형 설정: ~/.opencodex/config.json을 쓰고 Codex를 �
 
 ## 지원 플랫폼
 
-| OS | 지원 상태 | 서비스 관리자 |
-|---|---|---|
-| macOS (arm64 / x64) | 완전 지원 | launchd |
-| Linux (x64 / arm64) | 완전 지원 | systemd (user unit) |
-| Windows (x64) | 완전 지원 | Task Scheduler (숨김) / 선택적 네이티브 서비스 (`--native`, WinSW) |
+| OS | 지원 상태 | 서비스 관리자 | 데스크톱 앱 (베타) |
+|---|---|---|---|
+| macOS (arm64 / x64) | 완전 지원 | launchd | 유니버설 `.dmg` |
+| Linux (x64 / arm64) | 완전 지원 | systemd (user unit) | x86_64 `.AppImage` / `.deb` |
+| Windows (x64) | 완전 지원 | Task Scheduler (숨김) / 선택적 네이티브 서비스 (`--native`, WinSW) | x64 `.msi` |
 
-[Node](https://nodejs.org) 18 이상이 필요합니다. Bun 런타임은 `npm install` 때 번들되므로 따로 설치할
+CLI 설치에는 [Node](https://nodejs.org) 18 이상이 필요하고, 데스크톱 앱은 Node와 Bun 모두 필요 없습니다. Bun 런타임은 `npm install` 때 번들되므로 따로 설치할
 필요가 없고, Windows에서도 WSL이 필요 없습니다. npm이 번들 런타임의 설치 스크립트를 막았다면
 [설치 문서](https://opencodex.me/ko/getting-started/installation/)를 보세요.
 
@@ -288,7 +344,7 @@ Qwen Cloud, Qoder Global과 CN (공식 PAT + CLI), SiliconFlow 등이 더 있습
 
 ```bash
 ocx init                       # 대화형 설정 (config 작성, Codex 연결, shim 제안)
-ocx start [--port 10100]       # 포그라운드에서 프록시 시작
+ocx start [--port 10100] [--socks5 [host:port] | --socks5-off]  # SOCKS5 기본값은 socks5://127.0.0.1:10808
 ocx stop                       # 중지 + 네이티브 Codex 복원
 ocx service [install|repair|restart|start|stop|status|uninstall|remove]  # 백그라운드 서비스
 ocx codex-shim install         # `codex`가 뜰 때마다 프록시를 필요 시 시작
@@ -303,8 +359,9 @@ ocx v2 <...>                   # 멀티에이전트 v1/v2 표면 제어
 ocx update [--tag preview]     # opencodex 업데이트
 ```
 
-포트를 고정하지 않고 시작하면 선호 포트가 사용 중일 때 다른 빈 포트로 옮겨갈 수 있습니다. `--port`를
-명시하면 절대 옮기지 않습니다. 전체 레퍼런스: [CLI 문서](https://opencodex.me/ko/reference/cli/).
+선호 포트가 사용 중이면 다른 포트로 옮겨가지 않고 시작을 중단한 뒤 해당 포트의 점유자를 알려줍니다. 따라서 기존
+프록시 옆에 두 번째 프록시가 실행된 채 남을 수 없습니다. 포트를 비우거나 `--port`로 다른 포트를 지정하세요.
+전체 레퍼런스: [CLI 문서](https://opencodex.me/ko/reference/cli/).
 
 ### 상태 확인과 준비
 

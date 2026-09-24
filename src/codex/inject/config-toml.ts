@@ -4,6 +4,7 @@ import { contextCompatibleBaseLine } from "../context-compat";
 import { resolveEffectiveProjectModelProvider } from "../project-config-warnings";
 import {
   OCX_SECTION_MARKER,
+  OCX_ROUTING_MARKER_LINE,
   REALTIME_WS_BASE_URL_KEY,
   isRootOpenaiBaseUrlLine,
   isRootRealtimeWsBaseUrlLine,
@@ -55,6 +56,46 @@ export function applyEol(content: string, eol: "\r\n" | "\n"): string {
   return eol === "\n" ? lf : lf.replace(/\n/g, "\r\n");
 }
 
+/** Label Codex shows for the injected provider when the operator has not chosen one. */
+export const DEFAULT_CODEX_PROVIDER_DISPLAY_NAME = "OpenCodex Proxy";
+
+/** Longest label accepted, matching the display-label policy used for provider names. */
+const MAX_CODEX_PROVIDER_DISPLAY_NAME_LENGTH = 128;
+
+/** Would this label put a control character into config.toml? */
+function hasControlCharacter(value: string): boolean {
+  // Checked by code point rather than by a control-character regex, which needs a lint
+  // suppression this repository's hygiene gate rejects — and which reads no more clearly.
+  for (const character of value) {
+    const code = character.codePointAt(0) ?? 0;
+    if (code < 0x20 || code === 0x7f) return true;
+  }
+  return false;
+}
+
+/**
+ * Which label to write, given whatever the config holds.
+ *
+ * Presentation only, and deliberately separate from identity: routing resolves through the
+ * provider id `opencodex` in the root `model_provider` line and the `[model_providers.opencodex]`
+ * header, neither of which is derived from this value. So a rename cannot reroute a thread or
+ * orphan a row that already names that id (#4810).
+ *
+ * Every rejected value falls back to the default rather than being emitted or omitted. Codex
+ * refuses to load a provider with no name, so writing a blank one would break the whole config
+ * file rather than one thread — strictly worse than the branding it was meant to remove. That is
+ * also why there is no way to suppress the field: suppression here means choosing a neutral
+ * label. A control character or an over-long value is rejected for the same reason, because
+ * `tomlString` would faithfully encode something Codex may still reject.
+ */
+export function resolveCodexProviderDisplayName(configured?: string): string {
+  const trimmed = (configured ?? "").trim();
+  if (!trimmed) return DEFAULT_CODEX_PROVIDER_DISPLAY_NAME;
+  if (trimmed.length > MAX_CODEX_PROVIDER_DISPLAY_NAME_LENGTH) return DEFAULT_CODEX_PROVIDER_DISPLAY_NAME;
+  if (hasControlCharacter(trimmed)) return DEFAULT_CODEX_PROVIDER_DISPLAY_NAME;
+  return trimmed;
+}
+
 export function buildProviderTableBlock(
   port: number,
   supportsWebsockets?: boolean,
@@ -84,13 +125,14 @@ export function buildProviderTableBlock(
 export function buildProviderTableBlockForTarget(
   target: CodexRoutingTarget,
   supportsWebsockets = false,
+  displayName?: string,
   supportsStandaloneWebSearch = false,
 ): string {
   const lines = [
     "",
-    OCX_SECTION_MARKER,
+    OCX_ROUTING_MARKER_LINE,
     "[model_providers.opencodex]",
-    'name = "OpenCodex Proxy"',
+    `name = ${tomlString(resolveCodexProviderDisplayName(displayName))}`,
     `base_url = ${tomlString(target.baseUrl)}`,
     'wire_api = "responses"',
     // false only in the authless Desktop opt-in (#1107); true keeps the App/TUI account gate.
@@ -174,6 +216,9 @@ export function setRootOpenaiBaseUrl(
     if (!isRootOpenaiBaseUrlLine(lines[i])) continue;
     const markerOwned = i > 0 && lines[i - 1].includes(OCX_SECTION_MARKER);
     if (!markerOwned) return { content, keptUserBaseUrl: true };
+    // Refresh the marker too, so a config injected by a build that predates the recovery
+    // hint gains it on the next `ocx start` instead of keeping a bare marker forever.
+    lines[i - 1] = OCX_ROUTING_MARKER_LINE;
     lines[i] = key;
     return { content: lines.join("\n"), keptUserBaseUrl: false };
   }
@@ -183,7 +228,7 @@ export function setRootOpenaiBaseUrl(
       content:
         content.replace(/\n+$/, "") +
         "\n" +
-        OCX_SECTION_MARKER +
+        OCX_ROUTING_MARKER_LINE +
         "\n" +
         key +
         "\n",
@@ -192,7 +237,7 @@ export function setRootOpenaiBaseUrl(
   }
   let insertAt = firstTable;
   while (insertAt > 0 && lines[insertAt - 1].trim() === "") insertAt--;
-  lines.splice(insertAt, 0, OCX_SECTION_MARKER, key);
+  lines.splice(insertAt, 0, OCX_ROUTING_MARKER_LINE, key);
   return { content: lines.join("\n"), keptUserBaseUrl: false };
 }
 
@@ -208,18 +253,19 @@ export function setRootOpenaiBaseUrlForTarget(
     if (!isRootOpenaiBaseUrlLine(lines[index])) continue;
     const markerOwned = index > 0 && lines[index - 1].includes(OCX_SECTION_MARKER);
     if (!markerOwned) return { content, keptUserBaseUrl: true };
+    lines[index - 1] = OCX_ROUTING_MARKER_LINE;
     lines[index] = key;
     return { content: lines.join("\n"), keptUserBaseUrl: false };
   }
   if (firstTable === -1) {
     return {
-      content: `${content.replace(/\n+$/, "")}\n${OCX_SECTION_MARKER}\n${key}\n`,
+      content: `${content.replace(/\n+$/, "")}\n${OCX_ROUTING_MARKER_LINE}\n${key}\n`,
       keptUserBaseUrl: false,
     };
   }
   let insertAt = firstTable;
   while (insertAt > 0 && lines[insertAt - 1].trim() === "") insertAt -= 1;
-  lines.splice(insertAt, 0, OCX_SECTION_MARKER, key);
+  lines.splice(insertAt, 0, OCX_ROUTING_MARKER_LINE, key);
   return { content: lines.join("\n"), keptUserBaseUrl: false };
 }
 
@@ -245,13 +291,14 @@ export function setRootRealtimeWsBaseUrl(
     if (!isRootRealtimeWsBaseUrlLine(lines[index])) continue;
     const markerOwned = index > 0 && lines[index - 1].includes(OCX_SECTION_MARKER);
     if (!markerOwned) return { content, keptUserRealtimeWsBaseUrl: true };
+    lines[index - 1] = OCX_ROUTING_MARKER_LINE;
     lines[index] = key;
     return { content: lines.join("\n"), keptUserRealtimeWsBaseUrl: false };
   }
   for (let index = 0; index < rootEnd; index += 1) {
     if (!isRootOpenaiBaseUrlLine(lines[index])) continue;
     if (!(index > 0 && lines[index - 1].includes(OCX_SECTION_MARKER))) continue;
-    lines.splice(index + 1, 0, OCX_SECTION_MARKER, key);
+    lines.splice(index + 1, 0, OCX_ROUTING_MARKER_LINE, key);
     return { content: lines.join("\n"), keptUserRealtimeWsBaseUrl: false };
   }
   // No marker-owned routing override to attach to: the override has no owner, so inject nothing.
@@ -520,6 +567,7 @@ export function buildProfileFileForTarget(
   catalogPath?: string | null,
   supportsWebsockets = false,
   fastMode?: boolean,
+  displayName?: string,
   supportsStandaloneWebSearch = false,
   standaloneWebSearchEnabled?: boolean,
 ): string {
@@ -556,7 +604,12 @@ export function buildProfileFileForTarget(
     featureLines.push(`standalone_web_search = ${standaloneWebSearchEnabled ? "true" : "false"}`);
   }
   if (featureLines.length > 0) lines.push("", "[features]", ...featureLines);
-  lines.push(buildProviderTableBlockForTarget(target, supportsWebsockets, supportsStandaloneWebSearch).trimEnd(), "");
+  lines.push(buildProviderTableBlockForTarget(
+    target,
+    supportsWebsockets,
+    displayName,
+    supportsStandaloneWebSearch,
+  ).trimEnd(), "");
   return lines.join("\n");
 }
 
@@ -574,4 +627,33 @@ export function chooseCatalogPathForInjection(
   }
 
   return existsSync(DEFAULT_CATALOG_PATH) ? DEFAULT_CATALOG_PATH : null;
+}
+
+/**
+ * The effective `model_catalog_json` is one of ours and the file is gone.
+ *
+ * Codex does not degrade on this: a catalog path it cannot read stops it loading its
+ * configuration at all, which looks exactly like the routing lockout in #5261 and is what the
+ * reporter's machine was left in after the catalog file was deleted by hand.
+ *
+ * Injection already repairs it — the chooser refuses a missing owned path and the caller strips
+ * the stale line. That only helps someone who runs opencodex again, and the whole difficulty of
+ * this state is that Codex is the thing that stopped working, so nothing prompts them to. This
+ * predicate exists so the CLI can say it out loud.
+ *
+ * A user-owned catalog assignment wins here exactly as it does during injection: if they named
+ * the file, its absence is theirs to explain, and we do not claim it.
+ *
+ * Ownership is decided by basename, which is a weak test — a file the user happens to name
+ * `opencodex-catalog.json` is read as ours wherever it sits. That is deliberate rather than
+ * overlooked: it is the same test injection already applies, and a detector that drew the line
+ * somewhere else would report a state injection would then treat differently. Tightening it is a
+ * change to injection, not to this.
+ */
+export function missingOwnedCatalogPath(content: string): string | null {
+  const existing = readRootModelCatalogPath(content);
+  if (!existing) return null;
+  const resolved = resolveCodexConfigPath(existing);
+  if (!isOpencodexCatalogPath(resolved)) return null;
+  return existsSync(resolved) ? null : existing;
 }

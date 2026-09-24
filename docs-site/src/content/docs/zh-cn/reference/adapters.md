@@ -154,10 +154,12 @@ Kiro 的 assistant 文本本身没有可靠的回合结束标记，但终止的 
 
 ### Reasoning effort
 
-`gpt-5.6-sol` 和 `claude-opus-5` 支持原生 effort，且请求字段名不同。`low` / `medium` / `high` /
-`xhigh` / `max` 分别通过 `additionalModelRequestFields.reasoning.effort` 和
-`output_config.effort` 发送。
-
+GPT-5.6 系列使用 `additionalModelRequestFields.reasoning.effort`，`claude-opus-5` 使用
+`additionalModelRequestFields.output_config.effort`。`gpt-5.6-luna` 和 `gpt-5.6-terra`
+仅通过原生字段发送已验证的 `low`、`medium`、`high` 和 `max`。
+这两个模型的原生 `xhigh` 尚未验证，因此仍使用原有的有界 thinking 指令模拟。
+`gpt-5.6-sol` 和 `claude-opus-5` 保留现有原生档位（`low`、`medium`、`high`、`xhigh`、`max`）。
+其他 Kiro 模型使用模拟推理；提供 effort 选项并不代表原生支持。
 
 ## `cursor`
 
@@ -183,7 +185,7 @@ Cursor 的 HTTP/1.1 兼容传输：通过 `agent.v1.AgentService/RunSSE` 接收 
   受限的 Desktop fallback 只保存进程本地由 HMAC 派生的 owner；原始 session/thread header 与
   OAuth/authorization 材料不会写入 checkpoint state。基于 OAuth 的 live transport 和按账号过滤的
   live model discovery 仍是实验功能；登录与 transport 设置参见[提供商指南](/zh-cn/guides/providers/)
-  和 [Cursor 提供商配置](/zh-cn/reference/configuration/providers/#cursor-provider-adapter-cursor)。
+  和 [Cursor 提供商配置](/zh-cn/reference/configuration/providers/#cursor-提供者adapter-cursor)。
   checkpoint 复用本身是自动的，没有用户设置。
 - 模型实时发现和推理都会遵守 `upstreamHttpVersion`。`auto`、`http2` 与 `h2` 保持原有 HTTP/2
   transport；只有 `http1.1` 与 `h1` 会选择兼容模式。
@@ -213,6 +215,8 @@ Cursor 的 HTTP/1.1 兼容传输：通过 `agent.v1.AgentService/RunSSE` 接收 
 - 把请求构建交给 Responses passthrough，验证 `baseUrl` 不含未解析的 template placeholder，
   再用 `api-key` 替换 `Authorization`。配置的 URL 直接指向 Azure v1 Responses API，因此 adapter
   不会追加 `api-version`。
+- 与 Responses 共用针对其他 provider 所生成推理状态的恢复：收到 `400 invalid_encrypted_content`
+  后，去掉该状态（加密内容和推理项的 `rs_…` id）并只重发一次。
 
 ## 图像工具（`image.ts`）
 

@@ -271,8 +271,9 @@ call creation과 sideband join은 같은 OpenAI 계정으로 이루어져야 하
 거부합니다(`404`). 두 요청 모두 Codex의 `session-id`와 `thread-id` 헤더를 실어 보냅니다. Pool 모드는
 계정 선택을 그 쌍에 묶어 두므로(프로세스 로컬) 프록시에 도착한 join은 통화를 만든 계정을 그대로 쓰고,
 Direct 모드는 두 요청 모두 호출자의 현재 bearer를 전달합니다. 릴레이되는 클라이언트 헤더는 정확히
-`openai-alpha`, `x-session-id`, `session-id`, `thread-id`, `originator`, `x-oai-attestation`
-(`src/server/live.ts`의 `LIVE_CLIENT_PROTOCOL_HEADERS`)이며, `Authorization`과 ChatGPT 계정 id는
+`openai-alpha`, `x-session-id`, `session-id`, `thread-id`, `originator`, `x-oai-attestation`,
+`x-codex-turn-metadata`(`src/server/live.ts`의 `LIVE_CLIENT_PROTOCOL_HEADERS`)이며, 각 헤더는
+호출자가 보낸 경우에만 전달되고 프록시가 만들어 내지 않습니다. `Authorization`과 ChatGPT 계정 id는
 ChatGPT 경로에서 프록시가 소유합니다(Pool은 저장된 계정으로 교체, Direct는 검증된 호출자 bearer를 전달).
 API 키 프로바이더는 자체 bearer를 씁니다. Codex가 join을 프록시로 보내는 것은
 `experimental_realtime_ws_base_url`이 프록시를 가리킬 때뿐이며, `ocx start`가 이 키를
@@ -355,3 +356,21 @@ OpenAI 스타일 `origin_rejected` body가 아니라 403 `permission_error`입�
 opencodex는 읽을 수 없는 바이트를 프로바이더에 보내는 대신 `unreadable_encrypted_agent_task`로
 실패합니다. worker task와 관련된 클라이언트 동작은 [서브에이전트 표면](/guides/sub-agent-surface/)을
 참조하세요.
+
+### 기존 대화에서 프로바이더를 바꿀 때
+
+다시 보내는 추론 항목의 `encrypted_content`는 그것을 만든 프로바이더와 자격 증명만 읽을 수 있습니다.
+대화를 마지막으로 처리한 프로바이더가 달랐다는 사실을 opencodex가 알고 있으면, 보내기 전에 그 blob을
+빼고 항목의 요약은 남깁니다. 그 프로바이더가 엔드포인트나 자격 증명까지 달랐다면 항목의 `rs_…` id도
+뺍니다. 새 대상은 그 id가 가리키는 항목을 찾을 수 없기 때문입니다. 프록시를 다시 시작한 직후처럼
+opencodex가 알 수 없을 때는 새 대상이 blob을 거부합니다. OpenAI와 Azure OpenAI는
+`400 invalid_encrypted_content`로 응답합니다. 그러면 opencodex는 이전 프로바이더의 추론 상태, 즉 blob과
+`rs_…` id를 뺀 요청을 한 번만 다시 보냅니다. id를 남기면 `Item with id 'rs_…' not found`가 나기
+때문입니다.
+
+이 복구는 Responses 프로토콜을 쓰는 모든 어댑터에 적용되므로 `openai-responses`와 `azure-openai`는
+똑같이 동작합니다. 복구에 성공하면 같은 대상에서 이어지는 그 대화의 턴은 이후 5분 동안 첫 전송 전에
+이 상태를 뺍니다. 재전송은 요청의 일반 전송 예산에서 차감됩니다. 일반 400과 429는 이 방식으로 다시
+보내지 않고 5xx도 마찬가지입니다. 예외는 하나뿐입니다. 암호화된 도구 출력이 들어 있는 요청에 대해 본문이
+그 복호화 실패 거부와 정확히 같은 502는 같은 한 번의 재전송을 받습니다. 두 번째 거부는 그대로
+클라이언트에 전달됩니다. 이때는 대상 프로바이더에서 새 대화를 시작하세요.

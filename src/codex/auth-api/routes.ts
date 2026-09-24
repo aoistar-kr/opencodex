@@ -7,7 +7,7 @@ import { getAccountQuotaHistory, listAccountQuotas } from "../quota";
 import { deleteCodexAccount } from "../account-lifecycle";
 import { isCodexAccountPaused, setCodexAccountPaused } from "../account-pause";
 import { clearCodexAccountPin, isCodexAccountPriorityKey, pinnedCodexAccountId, setCodexAccountPin, setCodexAccountPriority } from "../account-priority";
-import { codexQuotaScopeForModel, clearCodexAccountCooldown, clearThreadAccountMapForAccount, getEffectiveActiveCodexAccountId, isEffectiveCodexAccountPinned, resetCodexRoutingForManualSelection } from "../routing";
+import { codexAccountPinDrainReason, codexQuotaScopeForModel, clearCodexAccountCooldown, clearThreadAccountMapForAccount, getEffectiveActiveCodexAccountId, isEffectiveCodexAccountPinned, resetCodexRoutingForManualSelection } from "../routing";
 import { DEFAULT_ACCOUNT_PRIORITY, MAX_ACCOUNT_PRIORITY, MIN_ACCOUNT_PRIORITY, normalizeAccountPoolStickyLimit, normalizeCodexAccountPoolStrategy, parseAccountPoolStickyLimit, parseCodexAccountPoolStrategy, parseAccountPriority } from "../pool-rotation";
 import { MAIN_CODEX_ACCOUNT_ID } from "../main-account";
 import { reconcileLiveStateStores } from "../../lib/state-store-registrations";
@@ -21,6 +21,8 @@ import type { CodexAuthCatalogConvergence } from "./login-flow";
 import { PoolQuotaProbeBusyError } from "./pool-quota-probe";
 import { inspectResetCredits, consumeResetCredits } from "./reset-credit-service";
 import { getRuntimeConfig, saveRuntimeConfig, configuredPoolAccount } from "./runtime-config";
+import { captureConfigTopLevelRollback } from "../../config/rebase-provenance";
+import { getEffectiveCodexAutoSwitchThreshold, isCodexAccountAutoSwitchThresholdKey, parseCodexAutoSwitchThreshold, setCodexAccountAutoSwitchThresholdOverride } from "../account-auto-switch";
 
 export async function handleCodexAuthAPI(
   req: Request,
@@ -235,7 +237,22 @@ export async function handleCodexAuthAPI(
     else setCodexAccountPin(runtimeConfig, targetAccountId);
     resetCodexRoutingForManualSelection(targetAccountId);
     saveRuntimeConfig(config, runtimeConfig);
-    return jsonResponse({ ok: true, activeCodexAccountId: body.accountId, appliesImmediately: true });
+    // A pin this route accepts can still be dropped by the very next resolve, and saying
+    // nothing about that is what made the setting look ignored (#4521). The checks above
+    // refuse an account that cannot be selected at all; this reports the one remaining
+    // outcome they do not cover, from the same predicate routing releases on, so the two
+    // cannot drift. Absent means the pin survives — additive for existing clients.
+    // `appliesImmediately` is unchanged: it answers whether thread affinity was cleared,
+    // not whether the pin is durable.
+    const pinDrainReason = body.accountId == null
+      ? undefined
+      : codexAccountPinDrainReason(runtimeConfig, targetAccountId);
+    return jsonResponse({
+      ok: true,
+      activeCodexAccountId: body.accountId,
+      appliesImmediately: true,
+      ...(pinDrainReason !== undefined ? { pinDrained: true, pinDrainReason } : {}),
+    });
   }
 
   if (url.pathname === "/api/codex-auth/active" && req.method === "GET") {
@@ -257,12 +274,46 @@ export async function handleCodexAuthAPI(
   }
 
   if (url.pathname === "/api/codex-auth/auto-switch" && req.method === "PUT") {
-    let body: { threshold: number };
-    try { body = (await req.json()) as typeof body; } catch { return jsonResponse({ error: "Invalid JSON" }, 400); }
+    let parsedBody: unknown;
+    try { parsedBody = await req.json(); } catch { return jsonResponse({ error: "Invalid JSON" }, 400); }
+    if (typeof parsedBody !== "object" || parsedBody === null || Array.isArray(parsedBody)) {
+      return jsonResponse({ error: "body must be an object" }, 400);
+    }
+    const body = parsedBody as { id?: unknown; threshold?: unknown };
+    const runtimeConfig = getRuntimeConfig(config);
+    if (Object.hasOwn(body, "id")) {
+      if (!isCodexAccountAutoSwitchThresholdKey(body.id)) {
+        return jsonResponse({ error: "id must be a Codex account id" }, 400);
+      }
+      const threshold = body.threshold === null ? null : parseCodexAutoSwitchThreshold(body.threshold);
+      if (body.threshold !== null && threshold === null) {
+        return jsonResponse({ error: "threshold must be null or an integer 0-100" }, 400);
+      }
+      if (body.id !== MAIN_CODEX_ACCOUNT_ID && !configuredPoolAccount(runtimeConfig, body.id)) {
+        return jsonResponse({ error: "Codex account not found" }, 404);
+      }
+      const rollback = captureConfigTopLevelRollback(runtimeConfig, ["codexAccountAutoSwitchThresholds"]);
+      try {
+        // Inheritance resets delete children in place; keep the previous map intact for rollback.
+        if (runtimeConfig.codexAccountAutoSwitchThresholds) {
+          runtimeConfig.codexAccountAutoSwitchThresholds = { ...runtimeConfig.codexAccountAutoSwitchThresholds };
+        }
+        setCodexAccountAutoSwitchThresholdOverride(runtimeConfig, body.id, threshold);
+        saveRuntimeConfig(config, runtimeConfig);
+      } catch (error) {
+        rollback();
+        throw error;
+      }
+      return jsonResponse({
+        ok: true,
+        id: body.id,
+        autoSwitchThresholdOverride: threshold,
+        autoSwitchThreshold: getEffectiveCodexAutoSwitchThreshold(runtimeConfig, body.id),
+      });
+    }
     if (typeof body.threshold !== "number" || !Number.isInteger(body.threshold) || body.threshold < 0 || body.threshold > 100) {
       return jsonResponse({ error: "Threshold must be an integer 0-100" }, 400);
     }
-    const runtimeConfig = getRuntimeConfig(config);
     runtimeConfig.autoSwitchThreshold = body.threshold;
     saveRuntimeConfig(config, runtimeConfig);
     return jsonResponse({ ok: true });

@@ -1,13 +1,25 @@
+<p align="center">
+  <img src="../assets/banner.png" alt="opencodex — универсальный прокси провайдеров для Codex, Claude Code, Claude Desktop и Grok Build" width="100%">
+</p>
+
 <h3 align="center">make codex open!</h3>
 <p align="center"><b>Универсальный прокси провайдеров для OpenAI Codex, Claude Code, Claude Desktop и Grok Build</b><br>
 Две команды — и каждый из них работает на любой LLM, которую вы укажете.</p>
 
 <p align="center">
   <a href="https://x.com/claudeebum"><img src="https://img.shields.io/badge/%40claudeebum-000000?logo=x&logoColor=white" alt="Подписывайтесь на @claudeebum в X"></a>
+  <a href="https://github.com/lidge-jun/opencodex/releases/latest"><img src="https://img.shields.io/github/v/release/lidge-jun/opencodex?label=desktop&logo=github&color=24292f" alt="Последний релиз настольного приложения"></a>
   <a href="https://www.npmjs.com/package/@bitkyc08/opencodex"><img src="https://img.shields.io/npm/v/@bitkyc08/opencodex?color=cb3837&label=npm&logo=npm" alt="версия npm"></a>
   <a href="https://github.com/lidge-jun/opencodex/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/@bitkyc08/opencodex?color=blue" alt="лицензия"></a>
   <img src="https://img.shields.io/node/v/@bitkyc08/opencodex?logo=node.js&label=node" alt="версия Node">
 </p>
+
+<p align="center">
+  <a href="https://github.com/lidge-jun/opencodex/releases/latest"><img src="../assets/download-macos.svg" alt="Скачать OpenCodex для macOS" width="220"></a>
+  <a href="https://github.com/lidge-jun/opencodex/releases/latest"><img src="../assets/download-windows.svg" alt="Скачать OpenCodex для Windows" width="220"></a>
+  <a href="https://github.com/lidge-jun/opencodex/releases/latest"><img src="../assets/download-linux.svg" alt="Скачать OpenCodex для Linux" width="220"></a>
+</p>
+<p align="center"><sub>Настольное приложение (бета): универсальный <code>.dmg</code> для macOS · <code>.msi</code> для Windows x64 · <code>.AppImage</code> / <code>.deb</code> для Linux x86_64. Предпочитаете терминал? Установите CLI:</sub></p>
 
 ```bash
 npm install -g @bitkyc08/opencodex
@@ -80,7 +92,33 @@ Ollama или любую другую LLM с Codex, Claude Code, Claude Desktop 
 
 ## Быстрый старт
 
-### Личная установка
+### Настольное приложение (бета)
+
+Настольное приложение — это тот же прокси и та же панель управления в нативном окне,
+с иконкой в трее и встроенным `ocx`. Оно подключается к уже запущенному прокси либо
+запускает встроенный, а панель остаётся на порту прокси (**http://localhost:10100**,
+если вы не настроили другой). Выберите файл для своей платформы в
+[последнем релизе](https://github.com/lidge-jun/opencodex/releases/latest):
+
+| Платформа | Файл | Примечания |
+|---|---|---|
+| macOS 13+ (Apple Silicon и Intel) | `OpenCodex-<version>-macos.dmg` | Универсальная сборка, подписана Developer ID и нотариализована |
+| Windows (x64) | `OpenCodex-<version>-windows-x64.msi` | Пока без цифровой подписи: SmartScreen спросит один раз — выберите **Подробнее → Выполнить в любом случае** |
+| Linux (x86_64) | `OpenCodex-<version>-linux-x86_64.AppImage` или `-linux-amd64.deb` | Для трея нужен рабочий стол с поддержкой AppIndicator |
+
+Рядом с каждым файлом на странице релиза есть `.sha256`. На macOS 14+ приложение также
+поставляется с расширением WidgetKit, которое показывает состояние прокси, расход за
+сегодня и квоты провайдеров; модель снимков, которую оно отображает, находится в
+[`app/`](../app) (`MenuBarCore`). Чтобы собрать приложение самостоятельно, выполните
+`bun install && bun run build:gui` в корне репозитория, затем в `desktop/` выполните
+`bun install && bun run prepare-sidecar && bun run prepare-widget && bun run build:local` на macOS
+или `bun install && bun run prepare-sidecar && bun run build:local` на Windows и Linux (шаг с виджетом
+работает только на macOS). В [руководстве по настольному приложению](https://opencodex.me/ru/guides/desktop-app/) и
+[руководстве по приложению macOS в строке меню](https://opencodex.me/ru/guides/macos-menu-bar/)
+описан первый запуск, а
+[`AGENTS_INSTALL.md`](../AGENTS_INSTALL.md#where-things-are-installed) перечисляет всё, что записывается на диск.
+
+### Личная установка (CLI)
 
 ```bash
 npm install -g @bitkyc08/opencodex   # Node 18+; рантайм Bun подключается автоматически
@@ -92,7 +130,10 @@ ocx start                         # прокси + панель управлен
 Откройте **http://localhost:10100** и настройте всё в веб-панели: добавьте провайдеров
 (40+ встроенных или любой OpenAI-совместимый endpoint), выберите модели, управляйте
 аккаунтами. `ocx gui` в любой момент снова откроет панель.
-Кроме того, он умеет управлять **пулом аккаунтов ChatGPT** для аутентификации Codex. Добавьте
+
+### Пул аккаунтов ChatGPT
+
+opencodex также умеет управлять **пулом аккаунтов ChatGPT** для аутентификации Codex. Добавьте
 несколько аккаунтов ChatGPT / Codex и обновляйте их квоты за 5 ч / неделю / 30 дней в панели.
 При маршрутизации по квоте новые сессии могут использовать работоспособный аккаунт с наименьшим
 использованием; round-robin и fill-first применяют свои политики. Существующие треды Codex
@@ -129,14 +170,15 @@ ocx start                         # прокси + панель управлен
 <details>
 <summary>Docker Compose</summary>
 
-Репозиторий поставляет сборку Compose с закреплённым дайджестом и без root. Если на хосте
-установлены Git и Bun, перед каждой сборкой образа сгенерируйте канонический манифест
-совместимости, один раз инициализируйте токен плоскости данных через stdin и запустите хаб:
+Репозиторий поставляет сборку Compose с закреплённым дайджестом и без root. Сборка сама создаёт
+и проверяет канонический манифест совместимости из выбранного снимка Git. Для локального клона
+нужны Git и Docker Compose, для удалённого Git-контекста — Docker Compose. Ни одному варианту
+не нужны Bun на хосте или подготовительный шаг. Один раз инициализируйте токен плоскости данных
+через stdin и запустите хаб:
 
 ```bash
 git clone https://github.com/lidge-jun/opencodex.git
 cd opencodex
-bun scripts/generate-compatibility-version.ts
 docker compose build
 openssl rand -hex 32 | docker compose run --rm -T hub bun run docker/bootstrap-token.ts
 docker compose up -d
@@ -147,12 +189,30 @@ curl --fail --silent http://127.0.0.1:10100/readyz
 Привязка по умолчанию — `127.0.0.1:10100`. Удалённый доступ требует явного
 `OPENCODEX_BIND_ADDRESS=<LAN-or-Tailscale-IP> docker compose up -d`; `0.0.0.0` открывает
 все интерфейсы хоста. Ограничьте доступ файрволом и аутентифицированным TLS/tailnet-фронтендом.
-Сгенерированный JSON остаётся неотслеживаемым; он копируется в образ без включения `.git`.
-Перегенерируйте его после изменений исходников и не меняйте исходники между генерацией и сборкой.
-Сборка отклоняет устаревшие манифесты, отсутствующие или несовпадающие файлы, лишние исходники
+Сгенерированный JSON остаётся неотслеживаемым. В контекст сборки допускаются только `.git/index`
+и `.git/HEAD` — инвентарь, который читает `git ls-files`, объёмом около 1 МБ вместо полного хранилища
+объектов. Они видны только этапу манифеста, используемому при сборке, через монтирование только для
+чтения, поэтому ни один `COPY` не включает `.git`. Манифест, ранее созданный на хосте, принимается
+только после проверки; иначе сборка создаёт его сама. Сборка отклоняет устаревшие манифесты,
+отсутствующие или несовпадающие файлы, лишние исходники
 и символические ссылки. Она сверяет каждый записанный SHA-256 с контекстом сборки и скопированными
 рантайм-файлами, включая `package.json`, `bun.lock` и явно включённый
 `scripts/model-metadata.source.json`.
+
+Для удалённого Git-контекста BuildKit должен сохранять метаданные Git. Этот фрагмент сборки Compose
+выбирает удалённый снимок и передаёт требуемый встроенный аргумент:
+
+```yaml
+services:
+  hub:
+    pull_policy: build
+    build:
+      context: https://github.com/lidge-jun/opencodex.git#main
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        BUILDKIT_CONTEXT_KEEP_GIT_DIR: "1"
+```
 
 Токен и изменяемое состояние живут в именованном томе `ocx-state`; ни одно учётное данное не
 попадает в образ, Compose-файл, окружение или аргументы оболочки. См.
@@ -168,8 +228,9 @@ curl --fail --silent http://127.0.0.1:10100/readyz
 
 ```bash
 curl -fsSL https://bun.sh/install | bash
-git clone https://github.com/lidge-jun/opencodex.git
+git clone -b dev https://github.com/lidge-jun/opencodex.git
 cd opencodex && ~/.bun/bin/bun install
+~/.bun/bin/bun run build:gui
 ~/.bun/bin/bun run src/cli/index.ts start
 ```
 
@@ -177,8 +238,9 @@ cd opencodex && ~/.bun/bin/bun install
 
 ```powershell
 irm bun.sh/install.ps1 | iex
-git clone https://github.com/lidge-jun/opencodex.git
+git clone -b dev https://github.com/lidge-jun/opencodex.git
 cd opencodex; bun install
+bun run build:gui
 bun run src/cli/index.ts start
 ```
 
@@ -211,13 +273,13 @@ ocx init      # интерактивная настройка: пишет ~/.ope
 
 ## Поддерживаемые платформы
 
-| ОС | Статус | Менеджер служб |
-|---|---|---|
-| macOS (arm64 / x64) | Полная поддержка | launchd |
-| Linux (x64 / arm64) | Полная поддержка | systemd (пользовательский unit) |
-| Windows (x64) | Полная поддержка | Task Scheduler (скрыто) / опциональная нативная служба (`--native`, WinSW) |
+| ОС | Статус | Менеджер служб | Настольное приложение (бета) |
+|---|---|---|---|
+| macOS (arm64 / x64) | Полная поддержка | launchd | Универсальный `.dmg` |
+| Linux (x64 / arm64) | Полная поддержка | systemd (пользовательский unit) | `.AppImage` / `.deb` для x86_64 |
+| Windows (x64) | Полная поддержка | Task Scheduler (скрыто) / опциональная нативная служба (`--native`, WinSW) | `.msi` для x64 |
 
-Требуется [Node](https://nodejs.org) 18+. Рантайм Bun добавляется автоматически при `npm install` —
+Для установки CLI требуется [Node](https://nodejs.org) 18+; настольному приложению не нужны ни Node, ни Bun. Рантайм Bun добавляется автоматически при `npm install` —
 отдельно устанавливать Bun не нужно, WSL на Windows тоже не нужен. Если npm заблокировал
 скрипты установки встроенного рантайма, см. [документацию по установке](https://opencodex.me/ru/getting-started/installation/).
 
@@ -306,7 +368,7 @@ Qwen Cloud, Qoder Global и CN (официальный PAT + CLI), SiliconFlow �
 
 ```bash
 ocx init                       # интерактивная настройка (пишет конфиг, подключает Codex, предлагает shim)
-ocx start [--port 10100]       # запустить прокси на переднем плане
+ocx start [--port 10100] [--socks5 [host:port] | --socks5-off]  # SOCKS5 по умолчанию: socks5://127.0.0.1:10808
 ocx stop                       # остановить + восстановить нативный Codex
 ocx service [install|repair|restart|start|stop|status|uninstall|remove]  # фоновая служба
 ocx codex-shim install         # запускать прокси по требованию при старте `codex`
@@ -321,8 +383,9 @@ ocx v2 <...>                   # управление мультиагентны
 ocx update [--tag preview]     # обновить opencodex
 ```
 
-Запуски без закреплённого порта могут выбрать другой свободный порт, если предпочтительный занят;
-явный `--port` никогда не перескакивает. Полный справочник: [документация CLI](https://opencodex.me/ru/reference/cli/).
+Если предпочтительный порт занят, запуск останавливается и сообщает, какой процесс его занимает, вместо перехода
+на другой порт, поэтому второй прокси никогда не останется работать рядом с первым. Освободите порт или укажите
+другой с помощью `--port`. Полный справочник: [документация CLI](https://opencodex.me/ru/reference/cli/).
 
 ### Здоровье и готовность
 

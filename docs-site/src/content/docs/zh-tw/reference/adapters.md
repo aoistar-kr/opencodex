@@ -145,10 +145,12 @@ Kiro 的 assistant 文字本身沒有可靠的回合結束標記，但終止的 
 
 ### Reasoning effort
 
-`gpt-5.6-sol` 和 `claude-opus-5` 支援原生 effort，且請求欄位名不同。`low` / `medium` / `high` /
-`xhigh` / `max` 分別透過 `additionalModelRequestFields.reasoning.effort` 和
-`output_config.effort` 傳送。
-
+GPT-5.6 系列使用 `additionalModelRequestFields.reasoning.effort`，`claude-opus-5` 使用
+`additionalModelRequestFields.output_config.effort`。`gpt-5.6-luna` 和 `gpt-5.6-terra`
+只透過原生欄位傳送已驗證的 `low`、`medium`、`high` 和 `max`。
+這兩個模型的原生 `xhigh` 尚未驗證，因此仍使用原有的有界 thinking 指令模擬。
+`gpt-5.6-sol` 和 `claude-opus-5` 保留現有原生檔位（`low`、`medium`、`high`、`xhigh`、`max`）。
+其他 Kiro 模型使用模擬推理；提供 effort 選項不代表原生支援。
 
 ## `cursor`
 
@@ -185,6 +187,8 @@ Kiro 的 assistant 文字本身沒有可靠的回合結束標記，但終止的 
 - 把請求建置交給 Responses passthrough，驗證 `baseUrl` 不含未解析的 template placeholder，
   再用 `api-key` 替換 `Authorization`。設定的 URL 直接指向 Azure v1 Responses API，因此 adapter
   不會追加 `api-version`。
+- 與 Responses 共用針對其他 provider 所產生推理狀態的復原：收到 `400 invalid_encrypted_content`
+  後，去掉該狀態（加密內容與推理項的 `rs_…` id）並只重送一次。
 
 ## 圖像工具（`image.ts`）
 

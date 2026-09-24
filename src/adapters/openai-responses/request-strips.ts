@@ -1,24 +1,9 @@
+import { createHash } from "node:crypto";
 import { COMPACT_PROMPT, compactionItemToText, decodeCompactionSummary, isCompactionItemType } from "../../responses/compaction";
+import { debugProviderDiagnostic } from "../../lib/debug";
 import { isPlainObject } from "./internal";
 import { activateDeferredTool } from "./tool-schema";
 import { stripOpenAiOnlyWebSearchFields } from "./web-search";
-
-/** ChatGPT-auth-only top-level request controls that routed Responses backends must not receive. */
-const CANONICAL_ONLY_TOP_LEVEL_FIELDS: ReadonlySet<string> = new Set([
-  "access_programs",
-]);
-
-export function stripCanonicalOnlyTopLevelFields(body: unknown): unknown {
-  if (!isPlainObject(body)) return body;
-
-  let next = body;
-  for (const field of CANONICAL_ONLY_TOP_LEVEL_FIELDS) {
-    if (!Object.hasOwn(next, field)) continue;
-    if (next === body) next = { ...body };
-    delete next[field];
-  }
-  return next;
-}
 
 export function stripInvalidItemIds(body: unknown): unknown {
   if (!isPlainObject(body) || !Array.isArray(body.input)) return body;
@@ -138,18 +123,85 @@ export function stripInternalChatMessageMetadataPassthrough(body: unknown): unkn
 }
 
 /**
+ * OpenAI-private TOP-LEVEL request keys, the sibling of `CANONICAL_ONLY_TOOL_FIELDS` one level up.
+ *
+ * Codex attaches these on the request body itself rather than on a tool or an input item, and gates
+ * them on its own auth rather than on the destination URL. Loopback injection keeps Codex pointed at
+ * its built-in `openai` provider, so the client still believes it is addressing the canonical
+ * ChatGPT backend and keeps the key no matter where this proxy routes the turn. A Responses gateway
+ * that validates its top-level schema then rejects the whole request before inference.
+ *
+ * Keep this a table, and keep it to keys a client is OBSERVED to send. It is not an unknown-field
+ * sanitizer: a top-level key nobody has traced to a client is forwarded untouched, because deleting
+ * it would silently drop a parameter some other caller means.
+ */
+const CANONICAL_ONLY_TOP_LEVEL_FIELDS: readonly string[] = [
+  // Cyber access program selector, new in Codex 0.155. codex-rs mints it from
+  // `cyber_access_program::for_auth`, which filters on ChatGPT auth alone and never on the
+  // destination base URL, and serializes it on the Responses request, the compaction input and the
+  // WebSocket `response.create` envelope. No public specification defines it, so a strict
+  // third-party gateway answers with an unknown-parameter error naming it, and every turn of that
+  // thread fails (#4853).
+  //
+  // `codex_output_schema` is deliberately NOT here. In codex-rs it is the `name` of the JSON-schema
+  // `text.format` object, not a top-level key, so listing it would delete a field this client never
+  // sends and discard it for any client that does send it meaningfully.
+  "access_programs",
+];
+
+/**
+ * Remove the OpenAI-private top-level keys.
+ *
+ * The caller decides the boundary; see the call site in `passthrough.ts`, which applies this only
+ * to a destination OpenCodex does not operate. Returns the input unchanged when no listed key is
+ * present, so the common path allocates nothing and the caller-owned raw body is never mutated.
+ */
+export function stripCanonicalOnlyTopLevelFields(body: unknown): unknown {
+  if (!isPlainObject(body)) return body;
+  if (!CANONICAL_ONLY_TOP_LEVEL_FIELDS.some(field => Object.hasOwn(body, field))) return body;
+
+  const next = { ...body };
+  for (const field of CANONICAL_ONLY_TOP_LEVEL_FIELDS) delete next[field];
+  return next;
+}
+
+/**
  * When `store` is false, the upstream API does not persist response items. Any item ID
  * forwarded in `input` is then interpreted as a reference to a stored item that does not
  * exist, producing a 404. Strip all item IDs in this case — `call_id` pairing is unaffected.
  * Matches codex-rs behavior (core/src/client.rs:918-925).
  */
-export function stripItemIdsWhenUnstored(body: unknown): unknown {
-  if (!isPlainObject(body) || body.store !== false) return body;
+export function stripItemIdsWhenUnstored(body: unknown, requireCustomCallIds = false): unknown {
+  const repairCustomCallIds = requireCustomCallIds === true;
+  if (!isPlainObject(body) || (body.store !== false && !repairCustomCallIds)) return body;
   if (!Array.isArray(body.input)) return body;
 
   let changed = false;
   const input = body.input.map(item => {
-    if (!isPlainObject(item) || !("id" in item)) return item;
+    if (!isPlainObject(item)) return item;
+    if (repairCustomCallIds && item.type === "custom_tool_call") {
+      try {
+        if (typeof item.id === "string" && item.id.startsWith("ctc_")) return item;
+        if (
+          typeof item.call_id !== "string"
+          || typeof item.name !== "string"
+          || typeof item.input !== "string"
+        ) return item;
+        const digest = createHash("sha256")
+          .update(JSON.stringify([item.call_id, item.name, item.input]))
+          .digest("hex")
+          .slice(0, 40);
+        changed = true;
+        debugProviderDiagnostic("openai-responses", "xai-custom-tool-call-id-repaired", {
+          hadId: typeof item.id === "string",
+        });
+        return { ...item, id: `ctc_${digest}` };
+      } catch {
+        debugProviderDiagnostic("openai-responses", "xai-custom-tool-call-id-unrepaired", {});
+        return item;
+      }
+    }
+    if (body.store !== false || !("id" in item)) return item;
     changed = true;
     const next = { ...item };
     delete next.id;

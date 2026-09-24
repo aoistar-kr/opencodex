@@ -131,7 +131,12 @@ Si Kiro s’arrête sans appeler l’outil d’achèvement, l’adaptateur effec
 
 ### Effort de raisonnement
 
-`gpt-5.6-sol` et `claude-opus-5` prennent en charge nativement un niveau d’effort vérifié, mais chaque famille de modèles nomme différemment le champ de la requête. La valeur sélectionnée `low`, `medium`, `high`, `xhigh` ou `max` est envoyée dans `additionalModelRequestFields.reasoning.effort` pour `gpt-5.6-sol`, et dans `additionalModelRequestFields.output_config.effort` pour `claude-opus-5`. Les autres modèles Kiro utilisent actuellement un raisonnement émulé : opencodex convertit le niveau choisi en instructions de réflexion bornées dans le contenu utilisateur, car leur champ d’effort natif n’a pas été vérifié. La présence d’un contrôle d’effort annoncé sur ces modèles ne prouve donc pas la prise en charge native du raisonnement en amont.
+Les modèles GPT-5.6 utilisent `additionalModelRequestFields.reasoning.effort`, et `claude-opus-5`
+utilise `additionalModelRequestFields.output_config.effort`. Pour `gpt-5.6-luna` et `gpt-5.6-terra`,
+seuls `low`, `medium`, `high` et `max` empruntent le chemin natif vérifié. Leur niveau `xhigh`
+conserve les instructions de réflexion bornées existantes, car ce niveau natif n’a pas été vérifié.
+`gpt-5.6-sol` et `claude-opus-5` conservent leurs niveaux natifs existants : `low`, `medium`, `high`,
+`xhigh` et `max`. Les autres modèles Kiro utilisent une émulation ; un réglage d’effort ne prouve pas une prise en charge native.
 
 ## `cursor`
 
@@ -161,6 +166,7 @@ Si Kiro s’arrête sans appeler l’outil d’achèvement, l’adaptateur effec
 **Authentification :** `key` au moyen de l’en-tête `api-key` (et non Bearer).
 
 - Délègue la construction de la requête au relais Responses, vérifie que `baseUrl` ne contient aucun espace réservé de modèle non résolu et remplace `Authorization` par `api-key`. L’URL configurée cible directement l’API Responses v1 d’Azure ; l’adaptateur n’ajoute donc pas `api-version`.
+- Partage la récupération Responses pour l’état de raisonnement produit par un autre fournisseur : après un `400 invalid_encrypted_content`, il renvoie la requête une seule fois sans cet état (contenu chiffré et identifiant `rs_…` de l’élément de raisonnement).
 
 ## Utilitaires d’image (`image.ts`)
 

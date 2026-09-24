@@ -47,6 +47,7 @@ import {
   DEEPSEEK_V4_LEGACY_MODELS,
   DEEPSEEK_GATEWAY_THINKING_MODELS,
   DEEPSEEK_VISION_PREVIEW_MODEL,
+  COMMAND_CODE_MIMO_CONTEXT_WINDOWS,
   COMMAND_CODE_MODEL_INPUT_MODALITIES,
   OPENCODE_FREE_DEEPSEEK_MODELS,
   OPENCODE_ZEN_TEXT_ONLY_MODELS,
@@ -56,6 +57,11 @@ import {
   ALIBABA_TOKEN_PLAN_MODELS,
   ALIBABA_TOKEN_PLAN_QWEN_MODELS,
   ALIBABA_TOKEN_PLAN_INPUT_MODALITIES,
+  ALIBABA_TOKEN_PLAN_CONTEXT_WINDOWS,
+  ALIBABA_TOKEN_PLAN_MAX_OUTPUT_TOKENS,
+  ALIBABA_TOKEN_PLAN_NO_VISION,
+  ALIBABA_TOKEN_PLAN_PRESERVE_REASONING,
+  QWEN38_FAMILY,
   ALIBABA_INTL_TOKEN_PLAN_MODELS,
   ALIBABA_INTL_TOKEN_PLAN_QWEN_MODELS,
   TENCENT_CODING_PLAN_MODELS,
@@ -67,10 +73,10 @@ import {
   VOLCENGINE_PLAN_TEXT_ONLY_MODELS,
   ALIBABA_INTL_TOKEN_PLAN_INPUT_MODALITIES,
   KIMI_API_MODELS,
-  KIMI_CODING_MODELS,
   KIMI_THINKING_MODELS,
   KIMI_CODING_NO_REASONING_MODELS,
   KIMI_API_NO_REASONING_MODELS,
+  KIMI_CODING_LIVE_MODELS,
   KIMI_CODING_REASONING_EFFORTS,
   KIMI_CODING_DEFAULT_REASONING_EFFORTS,
   KIMI_CODING_REASONING_EFFORT_MAPS,
@@ -93,6 +99,15 @@ import {
   DIGITALOCEAN_CHAT_COMPLETION_MODELS,
   SCALEWAY_SERVERLESS_CHAT_MODELS,
   SCALEWAY_MODEL_INPUT_MODALITIES,
+  OPPER_MODELS,
+  OPPER_MODEL_CONTEXT_WINDOWS,
+  OPPER_MODEL_MAX_OUTPUT_TOKENS,
+  OPPER_MODEL_INPUT_MODALITIES,
+  STEPFUN_MODELS,
+  STEPFUN_MODEL_CONTEXT_WINDOWS,
+  STEPFUN_MODEL_INPUT_MODALITIES,
+  STEPFUN_NO_VISION_MODELS,
+  STEPFUN_REASONING_EFFORTS,
 } from "./model-seeds";
 
 export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
@@ -110,6 +125,13 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
     // Baseten says models outside its reasoning table do not support reasoning. Keep
     // unknown/new live slugs conservative until an official-docs registry refresh proves it.
     reasoningEfforts: [],
+    // `text.verbosity` is an OpenAI Responses parameter. Baseten documents its Model
+    // APIs as Chat Completions compatible, so there is nothing on that wire for it to
+    // become, and a routed row must not inherit the Codex template's verbosity picker
+    // (#4630: Codex sent `text: { verbosity: "low" }` and the turn 400'd before any
+    // model output). Provider-wide rather than per-model because this catalog is live-
+    // discovered: a slug that arrives tomorrow supports it no more than the seeded ones.
+    supportsVerbosity: false,
     modelReasoningEfforts: BASETEN_MODEL_REASONING_EFFORTS,
     modelReasoningEffortMap: BASETEN_MODEL_REASONING_EFFORT_MAP,
     modelDefaultReasoningEfforts: BASETEN_MODEL_DEFAULT_REASONING_EFFORTS,
@@ -149,6 +171,7 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
     // (merges into v4-flash later).
     modelContextWindows: {
       [`deepseek/${DEEPSEEK_VISION_PREVIEW_MODEL}`]: 1_048_576,
+      ...COMMAND_CODE_MIMO_CONTEXT_WINDOWS,
     },
     modelInputModalities: COMMAND_CODE_MODEL_INPUT_MODALITIES,
     modelDiscovery: {
@@ -206,6 +229,72 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
       },
     },
     note: "Shared Token Factory text-output inference only; live discovery excludes embedding and image-generation rows.",
+  },
+  {
+    // Primary sources checked 2026-09-11:
+    // - https://docs.crusoecloud.com/quickstart/getting-started-with-serverless-inference documents
+    //   the fixed OpenAI-compatible host https://api.inference.crusoecloud.com/v1, Bearer API keys
+    //   created in the Cloud console (Intelligence Foundry > Inference > Create API Key), and an
+    //   OpenAI SDK chat.completions example against meta-llama/Llama-3.3-70B-Instruct.
+    // - https://docs.crusoecloud.com/serverless-inference/available-models lists the served models
+    //   with slash-delimited ids; https://docs.crusoecloud.com/serverless-inference/rate-limits
+    //   documents per-project, per-model TPM/RPM limits (429 when exceeded, 503 under shared load).
+    // - GET /v1/models rejects unauthenticated requests with 401 {"errors":["Authentication failed"]},
+    //   so a successful authenticated list response is evidence that the supplied key is valid.
+    //   An authenticated capture on 2026-09-12 returned 18 rows shaped like OpenRouter's catalog
+    //   (`is_public`, `type`, `context_length`, `architecture.modality` of "text" or "multimodal",
+    //   `tags`, `pricing`, `supported_parameters`); 17 were public serverless models and one was an
+    //   account-private dedicated deployment with empty `type`/`modality`. `type` is blank on one
+    //   public model, so the filter keys on `is_public` plus `architecture.modality` instead.
+    // - https://legal.crusoe.ai/ hosts the Crusoe Cloud Platform Terms of Service v1.10 (effective
+    //   2026-08-10), which name Crusoe Technologies LLC as the contracting entity, and the Service
+    //   Specific Terms v5.0 (effective 2026-07-14), whose Crusoe Intelligence Foundry Terms cover the
+    //   Managed Inference Service reached through the Crusoe API.
+    // - https://models.dev/api.json (provider "crusoe") records openai/gpt-oss-120b as the one served
+    //   model with a low/medium/high reasoning_effort ladder; the other reasoning models expose an
+    //   on/off toggle only.
+    // Maintainer: @acheamponge, who works at Crusoe (affiliation disclosed) and also maintains the
+    // models.dev crusoe entry.
+    id: "crusoe",
+    label: "Crusoe",
+    baseUrl: "https://api.inference.crusoecloud.com/v1",
+    adapter: "openai-chat",
+    authKind: "key",
+    dashboardUrl: "https://console.crusoecloud.com",
+    liveModels: true,
+    preserveCustomDestination: true,
+    // The getting-started guide documents tools through the OpenAI SDK but no provider-wide
+    // parallel tool-call contract.
+    parallelToolCalls: false,
+    // Only gpt-oss-120b has a real effort ladder; toggle-style reasoning models must not be promoted
+    // to Codex's full fallback ladder.
+    reasoningEfforts: [],
+    modelReasoningEfforts: { "openai/gpt-oss-120b": ["low", "medium", "high"] },
+    directReasoningEffortModels: ["openai/gpt-oss-120b"],
+    // The catalog reports `architecture.modality: "multimodal"` without an input list. Four rows
+    // also carry the explicit "image text to text" tag; yutori/n2 instead reports multimodal
+    // type/modality plus browser/computer-use tags. Those five captured rows are classified here.
+    modelInputModalities: {
+      "google/gemma-4-31b-it": ["text", "image"],
+      "moonshotai/Kimi-K2.6": ["text", "image"],
+      "nvidia/Nemotron-3-Nano-Omni-Reasoning-30B-A3B": ["text", "image"],
+      "yutori/n2": ["text", "image"],
+      "zai-org/GLM-5.3-Flash": ["text", "image"],
+    },
+    modelDiscovery: {
+      path: "models",
+      maxResponseBytes: 256 * 1024,
+      maxModels: 256,
+      filter: {
+        // Keep public serverless rows whose architecture produces text; account-private
+        // deployments (blank modality) and any embedding or media rows fail closed.
+        allOf: [
+          { path: ["is_public"], equalsAny: [true] },
+          { path: ["architecture", "modality"], equalsAny: ["text", "multimodal"] },
+        ],
+      },
+    },
+    note: "Public Serverless Inference chat models on the shared OpenAI-compatible host; account-private and self-serve dedicated deployments are excluded from discovery and out of scope.",
   },
   {
     id: "digitalocean",
@@ -420,6 +509,7 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
     // model_access_denied, which is why the Chat path cannot simply hang off the new base.
     responsesPath: "/api/v1/responses",
     chatCompletionsPath: "/api/coding/paas/v4/chat/completions",
+    modelDiscovery: { path: "/api/v1/models", envelopeKey: "models", idField: "slug" },
     // The address this row occupied before the move. A saved custom provider still pointing
     // at the Chat endpoint keeps receiving this row's metadata (#1100).
     destinationAliases: [{ baseUrl: "https://api.z.ai/api/coding/paas/v4", adapter: "openai-chat" }],
@@ -663,9 +753,22 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
     id: "volcengine-coding-plan",
     label: "Volcengine Ark Coding Plan",
     baseUrl: "https://ark.cn-beijing.volces.com/api/coding/v3",
-    adapter: "openai-chat",
+    responsesPath: "/responses",
+    adapter: "openai-responses",
     authKind: "key",
+    supportsServiceTier: false,
     preserveCustomDestination: true,
+    // A row already saved on Chat keeps Chat. This is a `preserveCustomDestination` key entry,
+    // so `providerMatchesRegistryTransport` refuses the adapter mismatch and the request path
+    // returns the stored row untouched; the alias below still hands it this entry's metadata.
+    // Deliberately no startup config migration: the Z.AI one (`zai-responses-migration.ts`) is
+    // safe only because it rewrites rows the router already canonicalizes, and it gates on
+    // `providerMatchesRegistryTransport` to guarantee that. A Chat row here is NOT canonicalized,
+    // so migrating it would change a wire the operator is actually using, and a marker added
+    // now cannot tell the old default apart from a deliberate pre-upgrade Chat choice.
+    destinationAliases: [{ baseUrl: "https://ark.cn-beijing.volces.com/api/coding/v3", adapter: "openai-chat" }],
+    // Validated Ark Coding Plan continuations reject replayed reasoning items.
+    dropResponsesReasoningItems: true,
     dashboardUrl: "https://console.volcengine.com/ark/region:ark+cn-beijing/overview",
     defaultModel: "ark-code-latest",
     models: VOLCENGINE_CODING_PLAN_MODELS,
@@ -715,24 +818,53 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
     defaultModel: "qwen3.8-max",
     models: ALIBABA_TOKEN_PLAN_MODELS,
     liveModels: false,
+    // Alibaba documents an OpenAI-compatible Responses API on this same /compatible-mode/v1 base
+    // and ships an official Codex integration guide on wire_api = "responses" (#5097). The
+    // gateway serves the same models over both wires, and qwen3.8-flash, qwen3.7-plus and
+    // glm-5.3 carry live end-to-end evidence there (custom tools, reasoning replay, streaming,
+    // multi-turn continuation).
+    //
+    // That is deliberately NOT expressed as a modelWireDefaults pin. Pinning would move every
+    // existing Codex user of those models onto a different upstream with no config change, and
+    // one delta is unresolved: preserveReasoningContentModels below is read by the CHAT adapter,
+    // while the Responses serializer reads preserveResponsesReasoningContent, which this entry
+    // does not set. On the Responses wire those models would replay with blanked reasoning
+    // content -- less state than they carry today. Z.AI and DeepSeek set both flags together for
+    // exactly this reason. Until that flag is justified against this gateway, Responses stays a
+    // documented per-model modelAdapters opt-in;
+    // tests/providers/alibaba-token-plan-responses-optin.test.ts holds both halves.
     note: "Token Plan Personal Edition · China (Beijing)",
     modelInputModalities: ALIBABA_TOKEN_PLAN_INPUT_MODALITIES,
-    modelContextWindows: {
-      "qwen3.8-max": 983_616, "qwen3.7-max": 1_000_000, "qwen3.7-plus": 1_000_000,
-      "qwen3.6-flash": 1_000_000, "glm-5.3": 1_000_000, "glm-5.3-flash": 1_000_000, "glm-5.2": 1_000_000, 
-    },
+    modelContextWindows: ALIBABA_TOKEN_PLAN_CONTEXT_WINDOWS,
+    modelMaxOutputTokens: ALIBABA_TOKEN_PLAN_MAX_OUTPUT_TOKENS,
     modelReasoningEfforts: {
       ...Object.fromEntries(ALIBABA_TOKEN_PLAN_QWEN_MODELS.map(id => [id, THINKING_BUDGET_EFFORTS])),
-      "qwen3.8-max": QWEN38_REASONING_EFFORTS,
-      "glm-5.3": ZAI_GLM_53_REASONING_EFFORTS,
-      "glm-5.3-flash": ZAI_GLM_53_REASONING_EFFORTS,
+      ...Object.fromEntries(QWEN38_FAMILY.map(id => [id, QWEN38_REASONING_EFFORTS])),
       "glm-5.2": ZAI_GLM_52_REASONING_EFFORTS,
+      "glm-5.3": ZAI_GLM_53_REASONING_EFFORTS,
+      "deepseek-v4-pro": deepseekThinkingEffortsFor("deepseek-v4-pro"),
+      "deepseek-v4-pro-0813": deepseekThinkingEffortsFor("deepseek-v4-pro-0813"),
+      "deepseek-v4-flash-0731": deepseekThinkingEffortsFor("deepseek-v4-flash-0731"),
+      "deepseek-v4.1-flash": deepseekThinkingEffortsFor("deepseek-v4.1-flash"),
     },
-    modelDefaultReasoningEfforts: { "qwen3.8-max": "xhigh" },
-    directReasoningEffortModels: ["qwen3.8-max"],
-    thinkingBudgetModels: ALIBABA_TOKEN_PLAN_QWEN_MODELS.filter(id => id !== "qwen3.8-max"),
-    preserveReasoningContentModels: ["glm-5.3", "glm-5.3-flash", "glm-5.2", "qwen3.8-max", "qwen3.7-max", "qwen3.7-plus", "qwen3.6-flash"],
-    noVisionModels: ["glm-5.3", "glm-5.2"],
+    modelReasoningEffortMap: {
+      "deepseek-v4-pro": deepseekReasoningMapFor("deepseek-v4-pro"),
+      "deepseek-v4-pro-0813": deepseekReasoningMapFor("deepseek-v4-pro-0813"),
+      "deepseek-v4-flash-0731": deepseekReasoningMapFor("deepseek-v4-flash-0731"),
+      "deepseek-v4.1-flash": deepseekReasoningMapFor("deepseek-v4.1-flash"),
+    },
+    // Probed 260915 on the plan gateway: json_object returns valid JSON, strict
+    // json_schema is rejected 400 ("This response_format type is unavailable now")
+    // in both thinking modes, so requests downgrade to json_object rather than
+    // sending a schema the gateway refuses.
+    noJsonSchemaModels: ["deepseek-v4.1-flash"],
+    modelDefaultReasoningEfforts: Object.fromEntries(QWEN38_FAMILY.map(id => [id, "xhigh"])),
+    directReasoningEffortModels: QWEN38_FAMILY,
+    thinkingBudgetModels: ALIBABA_TOKEN_PLAN_QWEN_MODELS.filter(id => !QWEN38_FAMILY.includes(id)),
+    preserveReasoningContentModels: ALIBABA_TOKEN_PLAN_PRESERVE_REASONING,
+    noVisionModels: ALIBABA_TOKEN_PLAN_NO_VISION,
+    // The gateway accepts prompt_cache_key on every Token Plan chat model (probed 260902).
+    promptCacheKey: true,
   },
   {
     id: "alibaba-token-plan-intl",
@@ -749,31 +881,35 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
    note: "Token Plan Team Edition · Singapore (ap-southeast-1)",
     metadataModelIdNormalize: "case-insensitive",
    modelInputModalities: ALIBABA_INTL_TOKEN_PLAN_INPUT_MODALITIES,
-    modelContextWindows: {
-      "qwen3.8-max": 983_616,
-      "qwen3.7-max": 1_000_000, "qwen3.7-plus": 1_000_000, "qwen3.6-plus": 1_000_000, "qwen3.6-flash": 1_000_000,
-      "deepseek-v4-flash": 1_000_000, "deepseek-v3.2": 131_072,
-      "kimi-k2.7-code": 262_144, "kimi-k2.6": 262_144, "kimi-k2.5": 262_144,
-      "glm-5.3": 1_000_000, "glm-5.3-flash": 1_000_000, "glm-5.2": 1_000_000, "glm-5.1": 1_000_000, "glm-5": 1_000_000,
-      "MiniMax-M2.5": 204_800,
-    },
+    modelContextWindows: ALIBABA_TOKEN_PLAN_CONTEXT_WINDOWS,
+    modelMaxOutputTokens: ALIBABA_TOKEN_PLAN_MAX_OUTPUT_TOKENS,
     modelReasoningEfforts: {
       ...Object.fromEntries(ALIBABA_INTL_TOKEN_PLAN_QWEN_MODELS.map(id => [id, THINKING_BUDGET_EFFORTS])),
-      "qwen3.8-max": QWEN38_REASONING_EFFORTS,
-      "glm-5.3": ZAI_GLM_53_REASONING_EFFORTS,
-      "glm-5.3-flash": ZAI_GLM_53_REASONING_EFFORTS,
+      ...Object.fromEntries(QWEN38_FAMILY.map(id => [id, QWEN38_REASONING_EFFORTS])),
       "glm-5.2": ZAI_GLM_52_REASONING_EFFORTS,
+      "glm-5.3": ZAI_GLM_53_REASONING_EFFORTS,
+      "deepseek-v4-pro": deepseekThinkingEffortsFor("deepseek-v4-pro"),
+      "deepseek-v4-pro-0813": deepseekThinkingEffortsFor("deepseek-v4-pro-0813"),
       "deepseek-v4-flash": deepseekThinkingEffortsFor("deepseek-v4-flash"),
+      "deepseek-v4-flash-0731": deepseekThinkingEffortsFor("deepseek-v4-flash-0731"),
+      "deepseek-v4.1-flash": deepseekThinkingEffortsFor("deepseek-v4.1-flash"),
     },
     modelReasoningEffortMap: {
+      "deepseek-v4-pro": deepseekReasoningMapFor("deepseek-v4-pro"),
+      "deepseek-v4-pro-0813": deepseekReasoningMapFor("deepseek-v4-pro-0813"),
       "deepseek-v4-flash": deepseekReasoningMapFor("deepseek-v4-flash"),
+      "deepseek-v4-flash-0731": deepseekReasoningMapFor("deepseek-v4-flash-0731"),
+      "deepseek-v4.1-flash": deepseekReasoningMapFor("deepseek-v4.1-flash"),
     },
-    directReasoningEffortModels: ["qwen3.8-max"],
-    thinkingBudgetModels: ALIBABA_INTL_TOKEN_PLAN_QWEN_MODELS.filter(id => id !== "qwen3.8-max"),
-    preserveReasoningContentModels: ["glm-5.3", "glm-5.3-flash", "glm-5.2", "deepseek-v4-flash", "qwen3.8-max", "qwen3.7-max", "qwen3.7-plus", "qwen3.6-plus", "qwen3.6-flash"],
-    noVisionModels: ["deepseek-v4-flash", "deepseek-v3.2", "glm-5.3", "glm-5.2", "glm-5.1", "glm-5", "MiniMax-M2.5"],
+    // Same 260915 json_schema rejection probe as the Beijing entry.
+    noJsonSchemaModels: ["deepseek-v4.1-flash"],
+    directReasoningEffortModels: QWEN38_FAMILY,
+    thinkingBudgetModels: ALIBABA_INTL_TOKEN_PLAN_QWEN_MODELS.filter(id => !QWEN38_FAMILY.includes(id)),
+    preserveReasoningContentModels: ALIBABA_TOKEN_PLAN_PRESERVE_REASONING,
+    noVisionModels: ALIBABA_TOKEN_PLAN_NO_VISION,
     noReasoningModels: ["kimi-k2.7-code", "kimi-k2.6", "kimi-k2.5", "deepseek-v3.2", "glm-5.1", "glm-5", "MiniMax-M2.5"],
-    modelDefaultReasoningEfforts: { "qwen3.8-max": "xhigh" },
+    modelDefaultReasoningEfforts: Object.fromEntries(QWEN38_FAMILY.map(id => [id, "xhigh"])),
+    promptCacheKey: true,
   },
   // NEEDS_HUMAN 2026-07-10: kept for config compatibility, but this is a dashboard URL,
   // no /models endpoint is documented, and tools are silently ignored upstream per docs.parallel.ai.
@@ -879,11 +1015,17 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
   },
   {
     id: "kimi-code", label: "Kimi (coding)", baseUrl: "https://api.kimi.com/coding/v1", adapter: "openai-chat", authKind: "key",
-    dashboardUrl: "https://platform.moonshot.cn/console/api-keys", defaultModel: "kimi-k2.7-code",
+    // 260921: kimi-k2.7-code was retired from the coding endpoint; the kimi-for-coding alias
+    // is the stable ID and currently routes to K2.8 Preview (same as the OAuth preset).
+    dashboardUrl: "https://platform.moonshot.cn/console/api-keys", defaultModel: "kimi-for-coding",
     modelSuffixBracketStrip: true,
     // API-key form of the same Kimi Code Plan transport; keep cache affinity identical to OAuth.
     promptCacheKey: true,
-    models: KIMI_CODING_MODELS,
+    // Keep Responses tool-result adjacency aligned with the OAuth preset (#4726).
+    requiresAdjacentResponsesToolResults: true,
+    // 260921: same live-id picker as the OAuth preset — the retired k2.x ids are repaired
+    // in saved configs by MODEL_RENAMES, not offered on fresh installs.
+    models: KIMI_CODING_LIVE_MODELS,
     modelContextWindows: KIMI_CODING_MODEL_CONTEXT_WINDOWS,
     modelInputModalities: KIMI_CODING_MODEL_INPUT_MODALITIES,
     noReasoningModels: KIMI_CODING_NO_REASONING_MODELS,
@@ -924,8 +1066,37 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
     // Same DeepSeek routes as the Go preset above, behind the same vendor, so they carry
     // the same json_schema rejection (#1338 / #1415).
     noJsonSchemaModels: [...DEEPSEEK_GATEWAY_THINKING_MODELS, ...OPENCODE_FREE_DEEPSEEK_MODELS],
+    // Muse Spark on Zen can sit silent during prolonged reasoning and close without a protocol terminal.
+    modelResponsesTerminalRepair: {
+      "muse-spark-1.2-contributor-free": { graceMs: 5_000 },
+      "muse-spark-1.3-contributor-free": { graceMs: 5_000 },
+    },
   },
   { id: "vercel-ai-gateway", label: "Vercel AI Gateway", baseUrl: "https://ai-gateway.vercel.sh/v1", adapter: "openai-chat", authKind: "key", dashboardUrl: "https://vercel.com/dashboard" },
+  {
+    // Opper: EU-hosted AI gateway (Opper AI AB, Stockholm). One OpenAI-compatible endpoint and one
+    // key in front of 30+ upstream providers. Seeded ids are Opper *pools* (bare names such as
+    // `claude-sonnet-4-6`): the gateway chooses the provider/region per request, and a
+    // `vendor/model` id (`anthropic/claude-sonnet-4-6`, `aws/claude-sonnet-4-6-eu`) pins one route.
+    // The original provider author reported on 2026-09-08 that GET /v3/compat/models answers 401
+    // without a key, so the default discovery URL doubles as key validation. Windows, output caps
+    // and modalities live in model-seeds.ts (smallest value / shared modality across each pool's
+    // members); live discovery owns which models exist.
+    id: "opper",
+    label: "Opper",
+    adapter: "openai-chat",
+    baseUrl: "https://api.opper.ai/v3/compat",
+    authKind: "key",
+    dashboardUrl: "https://platform.opper.ai",
+    liveModels: true,
+    preserveCustomDestination: true,
+    defaultModel: "claude-sonnet-4-6",
+    models: OPPER_MODELS,
+    modelContextWindows: OPPER_MODEL_CONTEXT_WINDOWS,
+    modelMaxOutputTokens: OPPER_MODEL_MAX_OUTPUT_TOKENS,
+    modelInputModalities: OPPER_MODEL_INPUT_MODALITIES,
+    note: "EU-hosted AI gateway: one OpenAI-compatible endpoint and one key in front of 30+ providers. Bare model ids are pools (claude-sonnet-4-6, gpt-5.5) and Opper picks the route per request; vendor/model ids (anthropic/claude-sonnet-4-6) pin one provider. The catalogue is discovered live from /v3/compat/models with your key; the public list is at opper.ai/models. Token rates are the model providers' rates with no markup; Opper charges a 3% fee when you buy credits.",
+  },
   {
     id: "opencode-free",
     label: "OpenCode Free",
@@ -970,7 +1141,11 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
     // narrower table that silently falls behind whenever the keyed one is updated.
     noJsonSchemaModels: [...DEEPSEEK_GATEWAY_THINKING_MODELS, ...OPENCODE_FREE_DEEPSEEK_MODELS],
   },
-  { id: "xiaomi", label: "Xiaomi MiMo", baseUrl: "https://api.xiaomimimo.com/anthropic", adapter: "anthropic", authKind: "key", dashboardUrl: "https://xiaomimimo.com", defaultModel: "mimo-v2.5-pro" },
+  // Xiaomi retires mimo-v2.5 and mimo-v2.5-pro on 2026-10-21 with no redirect
+  // (https://mimo.mi.com/docs/en-US/updates/deprecate), so the first-party presets default to V2.6.
+  // Saved defaults are not rewritten; V2.5 stays listed until it stops answering.
+  // Both first-party presets read the xiaomi metadata bundle for window, output, modalities and price.
+  { id: "xiaomi", label: "Xiaomi MiMo", baseUrl: "https://api.xiaomimimo.com/anthropic", adapter: "anthropic", authKind: "key", dashboardUrl: "https://xiaomimimo.com", defaultModel: "mimo-v2.6-pro", models: ["mimo-v2.6-pro", "mimo-v2.6-flash", "mimo-v2.6-pro-ultraspeed", "mimo-v2.5-pro", "mimo-v2.5"], jawcodeBundle: "xiaomi" },
   // Xiaomi's public OpenAI-compatible endpoint is a distinct transport from both the Anthropic
   // preset above and the paid token-plan host below. Keep a separate fixed-destination contract
   // so existing custom providers are never retargeted while the official route receives the
@@ -982,8 +1157,9 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
     adapter: "openai-chat",
     authKind: "key",
     dashboardUrl: "https://platform.xiaomimimo.com/console/balance",
-    defaultModel: "mimo-v2.5",
-    models: ["mimo-v2.5"],
+    defaultModel: "mimo-v2.6-flash",
+    models: ["mimo-v2.6-flash", "mimo-v2.6-pro", "mimo-v2.6-pro-ultraspeed", "mimo-v2.5"],
+    jawcodeBundle: "xiaomi",
     reasoningEfforts: ["low", "medium", "high"],
     reasoningEffortMap: { xhigh: "high", max: "high", ultra: "high" },
     preserveCustomDestination: true,
@@ -1023,8 +1199,11 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
     adapter: "openai-chat",
     authKind: "key",
     dashboardUrl: "https://xiaomimimo.com",
-    defaultModel: "mimo-v2.5-pro",
-    models: ["mimo-v2.5-pro", "mimo-v2.5"],
+    // Token-plan roster per Xiaomi's token-plan model list (V2.6 Pro and Flash). No jawcodeBundle,
+    // so no plan-specific facts are claimed; usage estimates still come from the model-level vendor
+    // price fallback (the pay-as-you-go equivalent), exactly as they did for V2.5.
+    defaultModel: "mimo-v2.6-pro",
+    models: ["mimo-v2.6-pro", "mimo-v2.6-flash", "mimo-v2.5-pro", "mimo-v2.5"],
     // The gateway validates the ladder strictly and rejects anything above `high`.
     reasoningEfforts: ["low", "medium", "high"],
     reasoningEffortMap: { xhigh: "high", max: "high", ultra: "high" },
@@ -1080,7 +1259,7 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
     featured: false,
     dashboardUrl: "https://github.com/settings/copilot",
     liveModels: true,
-    models: ["gpt-4o", "gpt-4.1", "gpt-4.1-mini", "claude-sonnet-4", "gemini-2.5-pro", "gpt-5-mini", "gpt-5.3-codex", "gpt-5.4", "gpt-5.4-mini", "gpt-5.5", "gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"],
+    models: ["gpt-4o", "gpt-4.1", "gpt-4.1-mini", "claude-sonnet-4", "gemini-2.5-pro", "gpt-5-mini", "gpt-5.3-codex", "gpt-5.4", "gpt-5.4-mini", "gpt-5.5", "gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-6-sol", "gpt-6-luna"],
     defaultModel: "gpt-4o",
     // Copilot fronts a mixed-wire catalog: these models reject /chat/completions for
     // real Codex-agent traffic (function tools + reasoning), so every inbound wire
@@ -1097,6 +1276,9 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
       "gpt-5.6-sol": "openai-responses",
       "gpt-5.6-terra": "openai-responses",
       "gpt-6-astra": "openai-responses",
+      // 260923 preemptive: GPT-6 Sol/Luna ride Responses like every GPT-5.6/6 row above.
+      "gpt-6-sol": "openai-responses",
+      "gpt-6-luna": "openai-responses",
       "grok-4.5": "openai-responses",
       "grok-4.6": "openai-responses",
       "mai-code-1.1-flash": "openai-responses",
@@ -1152,9 +1334,10 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
     // private console endpoint — the approach closed in #687 and left in draft in #2244.
     // baseUrl is the canonical region identity: the adapter fails closed if it is overridden, so a
     // global key is never sent to the CN environment (that is the separate `codebuddy-cn` entry).
-    // v1 runs tools-disabled so Codex keeps tool ownership; this provider is text/reasoning only
-    // until the control-protocol tool bridge lands (see docs). Free/trial/promotional/subscription
-    // credits draw from the same official API-key pool. Requires the CLI: `npm i -g @tencent-ai/codebuddy-code`.
+    // The CLI always runs tools-disabled; a capture-only MCP bridge advertises the request's
+    // Codex tool catalog, so approval, sandboxing, and execution stay with the client.
+    // Free/trial/promotional/subscription credits draw from the same official API-key pool.
+    // Requires the CLI: `npm i -g @tencent-ai/codebuddy-code`.
     // GOVERNANCE: whether routing this vendor automation surface behind a proxy for a third-party
     // agent satisfies CodeBuddy's AUP is an open question flagged for maintainer security review.
     id: "codebuddy",
@@ -1174,7 +1357,7 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
     reasoningEfforts: CODEBUDDY_REASONING_EFFORTS,
     modelReasoningEfforts: CODEBUDDY_GLOBAL_MODEL_REASONING_EFFORTS,
     modelDefaultReasoningEfforts: CODEBUDDY_GLOBAL_MODEL_DEFAULT_REASONING_EFFORTS,
-    note: "Official CodeBuddy Code CLI (Tencent Cloud), global/public environment. Uses the documented CODEBUDDY_API_KEY + headless CLI surface; never reads desktop sessions or private console endpoints. Region-isolated from codebuddy-cn. v1 disables CLI tools (--tools \"\") so Codex retains tool ownership: text/reasoning only for now. Requires `npm i -g @tencent-ai/codebuddy-code`. AUP/routing authorization flagged for maintainer security review.",
+    note: "Official CodeBuddy Code CLI (Tencent Cloud), global/public environment. Uses the documented CODEBUDDY_API_KEY + headless CLI surface; never reads desktop sessions or private console endpoints. Region-isolated from codebuddy-cn. The CLI always runs tools-disabled (--tools \"\"); a capture-only MCP bridge surfaces the request's Codex tool catalog as capturable calls, with approval and execution kept by the client. Requires `npm i -g @tencent-ai/codebuddy-code`. AUP/routing authorization flagged for maintainer security review.",
   },
   {
     // Official CodeBuddy Code CLI provider, CHINA / `internal` environment. Identical adapter and
@@ -1199,6 +1382,23 @@ export const PROVIDER_REGISTRY_EXTENDED: readonly ProviderRegistryEntry[] = [
     modelReasoningEfforts: CODEBUDDY_CN_MODEL_REASONING_EFFORTS,
     modelDefaultReasoningEfforts: CODEBUDDY_CN_MODEL_DEFAULT_REASONING_EFFORTS,
     noVisionModels: CODEBUDDY_CN_NO_VISION_MODELS,
-    note: "Official CodeBuddy Code CLI (Tencent Cloud), China/internal environment. Uses the documented CODEBUDDY_API_KEY + headless CLI surface; never reads desktop sessions or private console endpoints. Region-isolated from codebuddy (Global); credentials are never exchanged across regions. v1 disables CLI tools (--tools \"\"): text/reasoning only for now. Requires `npm i -g @tencent-ai/codebuddy-code`. AUP/routing authorization flagged for maintainer security review.",
+    note: "Official CodeBuddy Code CLI (Tencent Cloud), China/internal environment. Uses the documented CODEBUDDY_API_KEY + headless CLI surface; never reads desktop sessions or private console endpoints. Region-isolated from codebuddy (Global); credentials are never exchanged across regions. The CLI always runs tools-disabled (--tools \"\"); a capture-only MCP bridge surfaces the request's Codex tool catalog as capturable calls, with approval and execution kept by the client. Requires `npm i -g @tencent-ai/codebuddy-code`. AUP/routing authorization flagged for maintainer security review.",
+  },
+  {
+    id: "stepfun",
+    label: "StepFun",
+    baseUrl: "https://api.stepfun.com/v1",
+    adapter: "openai-chat",
+    authKind: "key",
+    dashboardUrl: "https://platform.stepfun.com",
+    defaultModel: "step-5-preview",
+    models: STEPFUN_MODELS,
+    liveModels: true,
+    preserveCustomDestination: true,
+    modelContextWindows: STEPFUN_MODEL_CONTEXT_WINDOWS,
+    modelInputModalities: STEPFUN_MODEL_INPUT_MODALITIES,
+    noVisionModels: STEPFUN_NO_VISION_MODELS,
+    reasoningEfforts: STEPFUN_REASONING_EFFORTS,
+    note: "StepFun (阶跃星辰) official OpenAI-compatible API.",
   },
 ];

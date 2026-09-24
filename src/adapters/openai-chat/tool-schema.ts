@@ -1,7 +1,8 @@
 import { isNativeOpenAIChatTarget } from "./wire";
+import { createOpenAIChatToolNameRegistry, type OpenAIChatToolNameRegistry } from "./tool-name-registry";
 import { isXaiSchemaTarget, lookupLocalJsonPointer, normalizeXaiToolParameters } from "../xai-tool-schema";
 import { stripResponsesOnlyEncryptedMarker, stripUnicodePropertyPatterns } from "../responses-tool-schema";
-import { isAllowedToolChoice, namespacedToolName, resolveToolChoiceWireName, toolChoiceToolPredicate } from "../../types";
+import { isAllowedToolChoice, resolveToolChoiceWireName, toolChoiceToolPredicate } from "../../types";
 import type { OcxParsedRequest, OcxProviderConfig } from "../../types";
 
 const ZEN_SCHEMA_MAP_KEYS = new Set(["properties", "$defs", "definitions"]);
@@ -197,6 +198,37 @@ const MOONSHOT_MAX_REF_EXPANSIONS = 512;
  */
 const MOONSHOT_MAX_SCHEMA_DEPTH = 64;
 const MOONSHOT_MAX_SCHEMA_NODES = 4_096;
+const MOONSHOT_MAX_INLINED_SCHEMA_BYTES = 1024 * 1024;
+
+/**
+ * Measure only as far as the caller's remaining allowance. Keeping this iterative avoids
+ * reintroducing the deep-schema stack exhaustion that the normalizer's depth limit prevents.
+ */
+function serializedJsonBytesUpTo(value: unknown, limit: number): number {
+  const encoder = new TextEncoder();
+  const pending: unknown[] = [value];
+  let bytes = 0;
+  while (pending.length > 0 && bytes <= limit) {
+    const item = pending.pop();
+    if (Array.isArray(item)) {
+      bytes += 2 + Math.max(0, item.length - 1);
+      for (const child of item) pending.push(child);
+      continue;
+    }
+    if (isXaiObjectSchema(item)) {
+      const entries = Object.entries(item);
+      bytes += 2 + Math.max(0, entries.length - 1);
+      for (const [key, child] of entries) {
+        bytes += encoder.encode(JSON.stringify(key)).byteLength + 1;
+        pending.push(child);
+      }
+      continue;
+    }
+    const encoded = JSON.stringify(item);
+    bytes += encoder.encode(encoded === undefined ? "null" : encoded).byteLength;
+  }
+  return bytes;
+}
 
 /**
  * Assertion keywords whose meaning under a `$ref` is CONJUNCTION, not replacement. A node
@@ -308,8 +340,19 @@ function composeProperties(
   return combined;
 }
 
+/**
+ * The inline-byte allowance for one request. Sharing it across tools matters: a per-tool
+ * budget would let a large catalog multiply the cap by its tool count, reintroducing the
+ * request amplification this bound exists to prevent.
+ */
+interface MoonshotInlineByteBudget {
+  remaining: number;
+}
+
 interface MoonshotNormalizeState {
   activeRefs: Set<string>;
+  inlineSizeCache: WeakMap<Record<string, unknown>, number>;
+  inlineByteBudget: MoonshotInlineByteBudget;
   remainingExpansions: number;
   remainingNodes: number;
 }
@@ -341,10 +384,37 @@ function normalizeMoonshotSchemaNode(
 
     const target = lookupLocalJsonPointer(root, ref);
     if (isXaiObjectSchema(target)) {
+      // Charge the referenced value before copying it. Object/node counts do not cover large
+      // maps of boolean schemas, which otherwise allow a small input to create hundreds of
+      // full copies before the final request is serialized.
+      let inlineBytes = state.inlineSizeCache.get(target);
+      if (inlineBytes === undefined) {
+        inlineBytes = serializedJsonBytesUpTo(target, MOONSHOT_MAX_INLINED_SCHEMA_BYTES);
+        state.inlineSizeCache.set(target, inlineBytes);
+      }
+      if (inlineBytes > state.inlineByteBudget.remaining) return { $ref: ref };
+      const bytesBefore = state.inlineByteBudget.remaining;
+      const expansionsBefore = state.remainingExpansions;
+      const nodesBefore = state.remainingNodes;
+      state.inlineByteBudget.remaining -= inlineBytes;
       state.remainingExpansions -= 1;
       state.activeRefs.add(ref);
       const resolvedTarget = normalizeMoonshotSchemaNode(target, root, state, depth + 1);
       state.activeRefs.delete(ref);
+      // Nested copies have already spent from the shared allowance. Charge only
+      // growth that their own charges do not cover.
+      const nestedCharges = bytesBefore - inlineBytes - state.inlineByteBudget.remaining;
+      const normalizedBytes = serializedJsonBytesUpTo(
+        resolvedTarget, bytesBefore,
+      );
+      const growthBytes = Math.max(0, normalizedBytes - inlineBytes - nestedCharges);
+      if (growthBytes > state.inlineByteBudget.remaining) {
+        state.inlineByteBudget.remaining = bytesBefore;
+        state.remainingExpansions = expansionsBefore;
+        state.remainingNodes = nodesBefore;
+        return { $ref: ref };
+      }
+      state.inlineByteBudget.remaining -= growthBytes;
       const merged: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
       if (isXaiObjectSchema(resolvedTarget)) {
         for (const [key, value] of Object.entries(resolvedTarget)) merged[key] = value;
@@ -379,6 +449,20 @@ function normalizeMoonshotSchemaNode(
         }
         merged[key] = normalized;
       }
+
+      // Re-normalize only composed properties that retain a $ref alongside sibling keywords
+      if (isXaiObjectSchema(merged.properties)) {
+        for (const [propName, propVal] of Object.entries(merged.properties as Record<string, unknown>)) {
+          if (isXaiObjectSchema(propVal) && typeof propVal.$ref === "string" && moonshotRefTargetKeys(propVal).length > 0) {
+            (merged.properties as Record<string, unknown>)[propName] = normalizeMoonshotSchemaNode(
+              propVal,
+              root,
+              state,
+              depth + 1,
+            );
+          }
+        }
+      }
       return merged;
     }
 
@@ -396,30 +480,73 @@ function normalizeMoonshotSchemaNode(
       ? value
       : normalizeMoonshotSchemaNode(value, root, state, depth + 1);
   }
+
+  // Moonshot MFJS requirements:
+  // 1. Stamp "object" if properties are present, or if allOf defines object properties/variants,
+  //    so Moonshot's validator recognizes the schema as a valid termination condition.
+  // 2. Infer scalar types for bare const and enum keywords.
+  if (out.type === undefined) {
+    const isObjectAllOf = Array.isArray(out.allOf) && out.allOf.some(
+      variant => isXaiObjectSchema(variant) && (
+        variant.type === "object" ||
+        variant.properties !== undefined ||
+        variant.additionalProperties !== undefined
+      ),
+    );
+    if (out.properties !== undefined || out.additionalProperties !== undefined || isObjectAllOf) {
+      out.type = "object";
+    } else if (out.const !== undefined) {
+      const t = typeof out.const;
+      if (t === "string" || t === "number" || t === "boolean") {
+        out.type = t;
+      }
+    } else if (Array.isArray(out.enum) && out.enum.length > 0) {
+      if (out.enum.every(x => typeof x === "string")) {
+        out.type = "string";
+      } else if (out.enum.every(x => typeof x === "number")) {
+        out.type = "number";
+      } else if (out.enum.every(x => typeof x === "boolean")) {
+        out.type = "boolean";
+      }
+    }
+  }
+
   return out;
 }
 
-function normalizeMoonshotToolParameters(parameters: unknown): Record<string, unknown> {
+function normalizeMoonshotToolParameters(
+  parameters: unknown,
+  inlineByteBudget: MoonshotInlineByteBudget,
+): Record<string, unknown> {
   const rooted = ensureRootObjectType(parameters);
   const normalized = normalizeMoonshotSchemaNode(rooted, rooted, {
     activeRefs: new Set<string>(),
+    inlineSizeCache: new WeakMap<Record<string, unknown>, number>(),
+    inlineByteBudget,
     remainingExpansions: MOONSHOT_MAX_REF_EXPANSIONS,
     remainingNodes: MOONSHOT_MAX_SCHEMA_NODES,
   });
   return isXaiObjectSchema(normalized) ? normalized : rooted;
 }
 
-export function toolsToChatFormat(parsed: OcxParsedRequest, provider: OcxProviderConfig): unknown[] | undefined {
+export function toolsToChatFormat(
+  parsed: OcxParsedRequest,
+  provider: OcxProviderConfig,
+  registry: OpenAIChatToolNameRegistry = createOpenAIChatToolNameRegistry(parsed.context.tools),
+): unknown[] | undefined {
   if (!parsed.context.tools || parsed.context.tools.length === 0) return undefined;
   const tools = parsed.context.tools.filter(toolChoiceToolPredicate(parsed.options.toolChoice, parsed.context.tools));
   if (tools.length === 0) return undefined;
   const xaiTarget = isXaiSchemaTarget(provider);
   const moonshotTarget = !xaiTarget && isMoonshotSchemaTarget(provider);
+  const moonshotInlineByteBudget: MoonshotInlineByteBudget = {
+    remaining: MOONSHOT_MAX_INLINED_SCHEMA_BYTES,
+  };
   const formatted = tools.flatMap(t => {
     const normalized = xaiTarget
       ? normalizeXaiToolParameters(t.parameters)
       : moonshotTarget
-        ? normalizeMoonshotToolParameters(t.parameters)
+        ? normalizeMoonshotToolParameters(t.parameters, moonshotInlineByteBudget)
         : ensureRootObjectType(t.parameters);
     const parameters = stripUnicodePropertyPatterns(stripResponsesOnlyEncryptedMarker(normalized));
 
@@ -427,7 +554,7 @@ export function toolsToChatFormat(parsed: OcxParsedRequest, provider: OcxProvide
     return [{
       type: "function",
       function: {
-        name: namespacedToolName(t.namespace, t.name),
+        name: registry.alias(t),
         ...(t.description ? { description: t.description } : {}),
         parameters,
         ...(t.strict !== undefined ? { strict: t.strict } : {}),
@@ -437,8 +564,12 @@ export function toolsToChatFormat(parsed: OcxParsedRequest, provider: OcxProvide
   return formatted.length > 0 ? formatted : undefined;
 }
 
-export function toolsToChatFormatForProvider(parsed: OcxParsedRequest, provider: OcxProviderConfig): unknown[] | undefined {
-  const base = toolsToChatFormat(parsed, provider);
+export function toolsToChatFormatForProvider(
+  parsed: OcxParsedRequest,
+  provider: OcxProviderConfig,
+  registry: OpenAIChatToolNameRegistry = createOpenAIChatToolNameRegistry(parsed.context.tools),
+): unknown[] | undefined {
+  const base = toolsToChatFormat(parsed, provider, registry);
   const azureChat = isAzureOpenAiChatTarget(provider);
   const zenChat = shouldSanitizeZenToolParameters(provider);
   if (!base || (!zenChat && !azureChat)) return base;
@@ -463,15 +594,24 @@ export function toolChoiceToChatFormat(
   tc: OcxParsedRequest["options"]["toolChoice"],
   tools: OcxParsedRequest["context"]["tools"],
   provider: OcxProviderConfig,
+  registry: OpenAIChatToolNameRegistry = createOpenAIChatToolNameRegistry(tools),
 ): unknown {
   if (!tc) return undefined;
   if (isAllowedToolChoice(tc)) {
     if (tc.mode === "required" && tc.allowedTools.length === 1 && isNativeOpenAIChatTarget(provider)) {
-      return { type: "function", function: { name: resolveToolChoiceWireName(tools, tc.allowedTools[0]) } };
+      return {
+        type: "function",
+        function: { name: registry.aliasWireName(resolveToolChoiceWireName(tools, tc.allowedTools[0])) },
+      };
     }
     return tc.mode === "required" ? "required" : "auto";
   }
   if (tc === "auto" || tc === "none" || tc === "required") return tc;
-  if ("name" in tc) return { type: "function", function: { name: resolveToolChoiceWireName(tools, tc.name) } };
+  if ("name" in tc) {
+    return {
+      type: "function",
+      function: { name: registry.aliasWireName(resolveToolChoiceWireName(tools, tc.name)) },
+    };
+  }
   return undefined;
 }

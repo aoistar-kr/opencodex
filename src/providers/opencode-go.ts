@@ -34,6 +34,8 @@ export const OPENCODE_GO_ANTHROPIC_MODELS = [
   "minimax-m3",
   "minimax-m2.7",
   "minimax-m2.5",
+  // Retain upstream's compatibility pin for threads that still reference the retired live row.
+  "union-alpha",
   "qwen3.8-max",
   "qwen3.8-flash",
   "qwen3.7-max",

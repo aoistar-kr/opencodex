@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 /**
  * Remote compaction v2 support for ROUTED providers.
  *
@@ -18,7 +16,6 @@ import { createHash } from "node:crypto";
  */
 
 export const OCX_COMPACTION_PREFIX = "ocx1:";
-export const OCX_HYBRID_COMPACTION_PREFIX = "ocx2:";
 
 export const OCX_NATIVE_REPLAY_RECOVERY_NOTE =
   "Threads compacted through a routed provider can contain OpenCodeX-owned ocx1 state. "
@@ -62,66 +59,8 @@ export function encodeCompactionSummary(summary: string): string {
   return OCX_COMPACTION_PREFIX + Buffer.from(summary, "utf-8").toString("base64");
 }
 
-export interface HybridCompactionEnvelope {
-  native: string;
-  summary: string;
-  origin: string | null;
-}
-
-export function compactionOriginFingerprint(parts: readonly (string | undefined)[]): string | null {
-  if (parts.length !== 5 || parts.some(part => typeof part !== "string" || part.length === 0)) return null;
-  return createHash("sha256")
-    .update("ocx2-origin-v1\0")
-    .update(JSON.stringify(parts))
-    .digest("hex");
-}
-
-/**
- * Keep the provider-owned blob byte-for-byte while attaching a provider-neutral summary.
- * Only the summary is base64 encoded; re-encoding the already opaque native blob would add ~33%
- * wire/storage overhead for no benefit. Standard base64 never contains `:`, so the first delimiter
- * after the prefix is unambiguous even if the native payload itself contains colons.
- */
-export function encodeHybridCompaction(native: string, summary: string, origin?: string | null): string {
-  if (native.length === 0 || summary.length === 0) throw new Error("hybrid compaction requires native state and summary");
-  const originField = origin && /^[0-9a-f]{64}$/.test(origin) ? origin : "-";
-  return `${OCX_HYBRID_COMPACTION_PREFIX}${Buffer.from(summary, "utf-8").toString("base64")}:${originField}:${native}`;
-}
-
-export function decodeHybridCompaction(encryptedContent: string): HybridCompactionEnvelope | null {
-  if (!encryptedContent.startsWith(OCX_HYBRID_COMPACTION_PREFIX)) return null;
-  const payload = encryptedContent.slice(OCX_HYBRID_COMPACTION_PREFIX.length);
-  const separator = payload.indexOf(":");
-  if (separator <= 0 || separator === payload.length - 1) return null;
-  const encodedSummary = payload.slice(0, separator);
-  const remainder = payload.slice(separator + 1);
-  const originSeparator = remainder.indexOf(":");
-  let origin: string | null = null;
-  let native = remainder;
-  if (originSeparator > 0) {
-    const candidate = remainder.slice(0, originSeparator);
-    if (candidate === "-" || /^[0-9a-f]{64}$/.test(candidate)) {
-      origin = candidate === "-" ? null : candidate;
-      native = remainder.slice(originSeparator + 1);
-    }
-  }
-  // Buffer's base64 decoder is deliberately permissive (it ignores junk characters), but this is
-  // a proxy-owned wire format. Reject a mutated/noncanonical wrapper instead of silently decoding a
-  // different checkpoint. `Buffer.toString("base64")` always emits the standard padded alphabet.
-  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encodedSummary)) return null;
-  try {
-    const summary = Buffer.from(encodedSummary, "base64").toString("utf-8");
-    if (summary.length === 0 || native.length === 0) return null;
-    return { native, summary, origin };
-  } catch {
-    return null;
-  }
-}
-
-/** Decode a provider-neutral envelope; returns null for real native encrypted blobs or garbage. */
+/** Decode an `ocx1:` envelope; returns null for real (OpenAI-encrypted) blobs or garbage. */
 export function decodeCompactionSummary(encryptedContent: string): string | null {
-  const hybrid = decodeHybridCompaction(encryptedContent);
-  if (hybrid) return hybrid.summary;
   if (!encryptedContent.startsWith(OCX_COMPACTION_PREFIX)) return null;
   try {
     return Buffer.from(encryptedContent.slice(OCX_COMPACTION_PREFIX.length), "base64").toString("utf-8");

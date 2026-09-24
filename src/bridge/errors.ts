@@ -1,4 +1,12 @@
 import {
+  applyReplayRefusalClientHeaders,
+  isNonReplayableUpstreamCode,
+  isReplayRefusalCode,
+  markResponseNonReplayable,
+  REPLAY_REFUSED_STATUS,
+  retainReplayRefusal,
+} from "../lib/upstream-retry";
+import {
   adapterFailureFromMessage,
   classifyError,
   cyberPolicyErrorType,
@@ -18,17 +26,39 @@ export function formatErrorResponse(
     error.code = CYBER_POLICY_ERROR_CODE;
     error.type = cyberPolicyErrorType(type);
   }
-  const finalStatus = error.code === CYBER_POLICY_ERROR_CODE ? 400 : status;
+  // Only the allowlisted transport verdicts survive this formatter. Do not forward
+  // arbitrary provider codes, and preserve the existing cyber-policy precedence.
+  const replayBlocked = error.code !== CYBER_POLICY_ERROR_CODE
+    && isNonReplayableUpstreamCode(options?.code);
+  if (replayBlocked) error.code = options!.code!;
+  // The replay refusal owns its status as well as its code. A combo or adapter formatter
+  // reaches here holding the upstream-shaped status it was about to report, and inheriting
+  // that would hand the client a 5xx it is configured to retry four times.
+  const finalStatus = error.code === CYBER_POLICY_ERROR_CODE
+    ? 400
+    : isReplayRefusalCode(error.code) ? REPLAY_REFUSED_STATUS : status;
   const headers = new Headers({ "Content-Type": "application/json" });
   const retryAfter = options?.retryAfter?.trim();
   if (error.code !== CYBER_POLICY_ERROR_CODE
+    && !replayBlocked
     && retryAfter
     && retryAfter.length > 0
     && retryAfter.length <= 128) {
     headers.set("Retry-After", retryAfter);
   }
-  return new Response(JSON.stringify({ error }), {
+  // The refusal's client policy, restated here for the same reason its status is: this
+  // formatter is the last thing several adapter and combo paths touch before the client,
+  // and no wait of its own does not stop a client that retries every 429 by default.
+  const refusal = isReplayRefusalCode(error.code) && replayBlocked;
+  if (refusal) applyReplayRefusalClientHeaders(headers);
+  const response = new Response(JSON.stringify({ error }), {
     status: finalStatus,
     headers,
   });
+  if (replayBlocked) markResponseNonReplayable(response);
+  // Re-wrapping is where the refusal loses its provenance: combo failure consumption parses
+  // the JSON and builds a new Response, and the code alone does not tell a later quota
+  // recorder that no upstream produced this status. Carry the narrower marker across too.
+  if (refusal) retainReplayRefusal(response);
+  return response;
 }

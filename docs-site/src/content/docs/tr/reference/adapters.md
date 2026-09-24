@@ -23,7 +23,7 @@ interface ProviderAdapter {
 `AdapterEvent`'lere yükseltir. `fetchResponse`, bir adaptörün yeniden
 denemelere/zaman aşımlarına sahip olmasına izin verirken `runTurn`, tek bir HTTP
 getirmesini takip eden tek bir yanıt akışı olarak temsil edilemeyen aktarımları
-destekler. [`bridge.ts`](/tr/reference/architecture/#kopru-bridge) daha sonra
+destekler. [`bridge.ts`](/tr/reference/architecture/#köprü-bridge) daha sonra
 olayları Responses SSE'ye dönüştürür.
 
 ## `openai-chat`
@@ -268,15 +268,12 @@ tam olarak tekrarlasa bile, çünkü aşama doğruluğu kozmetik tekilleştirmed
 
 ### Akıl yürütme çabası
 
-`gpt-5.6-sol` ve `claude-opus-5` doğrulanmış yerel çaba desteğine sahiptir ve
-her model ailesi istek alanını farklı şekilde adlandırır. Seçilen `low`,
-`medium`, `high`, `xhigh` veya `max` değeri `gpt-5.6-sol` için
-`additionalModelRequestFields.reasoning.effort` olarak ve `claude-opus-5` için
-`additionalModelRequestFields.output_config.effort` olarak gönderilir. Diğer
-Kiro modelleri şu anda öykünülmüş akıl yürütme kullanır: opencodex yerel çaba
-alanları doğrulanmadığı için seçilen seviyeyi kullanıcı içeriğinde sınırlı
-düşünme talimatlarına dönüştürür. Bu modellerde bildirilen bir çaba denetimini
-yukarı akış yerel akıl yürütme desteğinin kanıtı olarak yorumlamayın.
+GPT-5.6 ailesi `additionalModelRequestFields.reasoning.effort`, `claude-opus-5` ise
+`additionalModelRequestFields.output_config.effort` alanını kullanır. `gpt-5.6-luna` ve
+`gpt-5.6-terra` için yalnızca doğrulanmış `low`, `medium`, `high` ve `max` seviyeleri yerel alandan
+gönderilir. Bu iki modelin yerel `xhigh` seviyesi doğrulanmadığı için mevcut sınırlı düşünme
+talimatlarıyla öykünme korunur. `gpt-5.6-sol` ve `claude-opus-5` için mevcut yerel `low`, `medium`,
+`high`, `xhigh` ve `max` davranışı değişmez. Diğer Kiro modelleri öykünme kullanır; çaba seçeneği yerel desteğin kanıtı değildir.
 
 ## `cursor`
 
@@ -329,6 +326,9 @@ başlığından Cursor OAuth/erişim belirteci.
   çözümlenmemiş şablon yer tutucusu içermediğini doğrular ve `Authorization`'ı
   `api-key` ile değiştirir. Yapılandırılan URL doğrudan Azure'un v1 Responses
   API'sini hedefler, bu nedenle adaptör `api-version` eklemez.
+- Başka bir sağlayıcının ürettiği akıl yürütme durumu için Responses kurtarmasını paylaşır:
+  `400 invalid_encrypted_content` aldığında isteği bu durum olmadan (şifreli içerik ve akıl
+  yürütme öğesinin `rs_…` kimliği) yalnızca bir kez yeniden gönderir.
 
 ## Görsel yardımcıları (`image.ts`)
 

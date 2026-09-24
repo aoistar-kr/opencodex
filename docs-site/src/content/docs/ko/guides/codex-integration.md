@@ -20,9 +20,9 @@ Pool 모드에서는 선택된 저장 계정이 쿨다운 중이고 사용 가�
 ```toml
 # root keys, before the first table
 model_catalog_json = "/absolute/path/to/opencodex-catalog.json"
-# Auto-injected by opencodex
+# Auto-injected by opencodex (undo: ocx restore)
 openai_base_url = "http://127.0.0.1:10100/v1"
-# Auto-injected by opencodex
+# Auto-injected by opencodex (undo: ocx restore)
 experimental_realtime_ws_base_url = "http://127.0.0.1:10100/v1"
 
 # fastMode를 설정했을 때만 들어갑니다. 설정하지 않으면 [features] 자체가 생기지 않습니다
@@ -169,7 +169,7 @@ model_provider = "opencodex"
 model_catalog_json = "/absolute/path/to/opencodex-catalog.json"
 
 # appended at the end of the file
-# Auto-injected by opencodex
+# Auto-injected by opencodex (undo: ocx restore)
 [model_providers.opencodex]
 name = "OpenCodex Proxy"
 base_url = "http://your-host:10100/v1"
@@ -210,6 +210,12 @@ upstream 요청 전에 `previous_response_not_found`를 반환합니다. Codex W
 상한은 그대로입니다. 클라이언트가 더 이상 보유하지 않는 기록을 복구하는 기능은 아닙니다.
 HTTP 클라이언트는 이 오류를 직접 처리하고 `previous_response_id` 없이 전체 컨텍스트를 다시
 보내야 합니다. 같은 ID만 재시도해서는 누락된 상태를 복구할 수 없습니다.
+
+참조한 상태의 client task scope가 현재 요청과 다를 때도 같은 거부 응답을 반환합니다. 새 요청이
+전체 입력처럼 보여도 프록시는 그것이 완전한 대화인지 증명할 수 없으므로
+`previous_response_id`를 조용히 제거하거나 일치하는 상태의 존재 여부를 노출하지 않습니다.
+전체 대화를 담고 `previous_response_id`를 뺀 요청으로 명시적으로 다시 시도하세요. 정규화된
+scope가 같거나 양쪽 scope가 모두 없거나 비어 있는 기존 unscoped continuation은 계속 replay합니다.
 
 routed 목적지에는 모두 같은 복구 신호가 적용됩니다. 프록시가 잃어버린 기록을 대신 볼 수 있는
 것은 네이티브 Responses 패스스루뿐입니다. 체인을 저장해 둔 백엔드로 `previous_response_id`를
@@ -381,10 +387,16 @@ ocx restore    # restore without stopping  (alias: ocx eject)
 ocx restore back # point plain Codex at the running proxy again
 ```
 
-opencodex가 managed [background service](/reference/cli/#ocx-service)로 실행될 때는 `OCX_SERVICE=1`을 설정하므로 service-driven restart가 Codex config를 흔들지 **않습니다**. 네이티브 Codex를 복원하는 것은 명시적인 `ocx stop` / `ocx service stop`뿐입니다.
+opencodex가 managed [background service](/ko/reference/cli/lifecycle/#백그라운드-서비스)로 실행될 때는 `OCX_SERVICE=1`을 설정하므로 service-driven restart가 Codex config를 흔들지 **않습니다**. 네이티브 Codex를 복원하는 것은 명시적인 `ocx stop` / `ocx service stop`뿐입니다.
 
 ## 페이지 분할 기록 보호에 따른 거부
 
-영향받는 기록 저장소가 페이지 분할을 지원하면 프로바이더 전환이 `history_paginated_requires_native_writer`를 반환할 수 있습니다. 이 이유로는 Codex 설정, 참조 프로필, 모델 카탈로그를 더 이상 거부하지 않습니다. `ocx sync`와 `ocx start`는 해당 파일과 `model_catalog_json`을 계속 쓰므로 Codex 모델 선택기에는 OpenCodex가 라우팅하는 모델이 모두 그대로 보입니다. 대화 기록의 프로바이더 재지정을 건너뛰는 것은 이 이유뿐이며, 페이지 분할 순번은 Codex 자체의 네이티브 기록 작성자가 할당하고 재시도해도 달라지지 않기 때문입니다. 읽을 수 없는 상태 데이터베이스, 식별자가 바뀐 대화 원본, 실행하지 못한 사전 검사처럼 다른 기록 사전 검사 이유는 나중에 성공할 수 있으므로 전환 전체를 거부하고 되돌립니다. 이 상태에서 OpenCodex는 페이지 분할 대화 원본이나 스레드 행을 수정하지 않습니다. 기존 대화는 이미 붙어 있는 프로바이더를 유지하고 이전되지 않으며, 새 대화는 평소처럼 프록시를 통해 라우팅됩니다. 재지정을 건너뛸 때 홈에 이미 있던 `[model_providers.opencodex]` 테이블은 폐기하지 않고 유지합니다. root-override(loopback) 형식에서도 같아서, 행이 `opencodex`로 표시된 대화는 아직 존재하는 프로바이더 id를 유지합니다. 변환 가능한 저장소의 `legacy` 행도 포함됩니다. CLI는 `Codex resume history: left to Codex's native writer (history_paginated_requires_native_writer)`를 출력합니다. `ocx restore`와 Codex 설정 제거는 여전히 `history_paginated_requires_native_writer`로 거부됩니다. 스레드 행이 아직 참조하는데 `[model_providers.opencodex]` 정의를 걷어내면 그 대화를 해석할 수 없고, 복원 경로에는 호환 프로바이더 테이블을 남겨 둘 방법이 없습니다. 이미 페이지 분할된 홈은 지금은 제품으로 제거할 수 없습니다. 의도한 동작이 아니라 알려진 미해결 작업입니다.
+영향받는 기록 저장소가 페이지 분할을 지원하면 프로바이더 전환이 `history_paginated_requires_native_writer`를 반환할 수 있습니다. 이 이유로는 Codex 설정, 참조 프로필, 모델 카탈로그를 더 이상 거부하지 않습니다. `ocx sync`와 `ocx start`는 해당 파일과 `model_catalog_json`을 계속 쓰므로 Codex 모델 선택기에는 OpenCodex가 라우팅하는 모델이 모두 그대로 보입니다. 대화 기록의 프로바이더 재지정을 건너뛰는 것은 이 이유뿐이며, 페이지 분할 순번은 Codex 자체의 네이티브 기록 작성자가 할당하고 재시도해도 달라지지 않기 때문입니다. 읽을 수 없는 상태 데이터베이스, 식별자가 바뀐 대화 원본, 실행하지 못한 사전 검사처럼 다른 기록 사전 검사 이유는 나중에 성공할 수 있으므로 전환 전체를 거부하고 되돌립니다. 이 상태에서 OpenCodex는 페이지 분할 대화 원본이나 스레드 행을 수정하지 않습니다. 기존 대화는 이미 붙어 있는 프로바이더를 유지하고 이전되지 않으며, 새 대화는 평소처럼 프록시를 통해 라우팅됩니다. 재지정을 건너뛸 때 홈에 이미 있던 `[model_providers.opencodex]` 테이블은 폐기하지 않고 유지합니다. root-override(loopback) 형식에서도 같아서, 행이 `opencodex`로 표시된 대화는 아직 존재하는 프로바이더 id를 유지합니다. 변환 가능한 저장소의 `legacy` 행도 포함됩니다. CLI는 `Codex resume history: left to Codex's native writer (history_paginated_requires_native_writer)`를 출력합니다. `ocx restore`, `ocx stop`, `ocx uninstall`은 이제 `history_paginated_requires_native_writer`로 거부하지 않습니다. OpenCodex가 넣은 루트 라우팅 키를 모두 걷어내고 `[model_providers.opencodex]` 정의는 디스크에 남기므로, 그 프로바이더를 가리키는 대화는 계속 열리고 plain `codex`는 더 이상 프록시를 향하지 않습니다. 결과는 남겨 둔 줄을 함께 알려 주는 부분 복원으로 보고되며, `ocx restore --remove-codex-provider-table`을 쓰면 그 줄까지 지웁니다. 대신 해당 대화는 열리지 않게 됩니다. 한편 `openai`로 표시된 대화를 Codex가 이미 페이지 분할한 홈에서 프로바이더 테이블 형식으로 통합을 켜면, 예전에는 `history_paginated_openai_requires_native_writer`로 전체가 거부되어 아무것도 쓰이지 않고 통합도 꺼진 채로 남았습니다. 지금은 관리 대상 루트 `openai_base_url` 재정의를 `[model_providers.opencodex]` 테이블과 함께 남겨 두는 방식으로 전환을 끝냅니다. Codex가 이 재정의를 내장 `openai` 프로바이더에 합치므로 해당 대화는 재지정 없이 계속 프록시에 닿고, 대화 원본이나 스레드 행은 건드리지 않습니다. `x-opencodex-api-key` 승인 헤더가 필요한 라우팅 형식만 여전히 거부합니다. 내장 프로바이더가 그 헤더를 실을 수 없기 때문이며, 이때 메시지는 해결 방법 두 가지를 이름으로 알려 줍니다. 루프백 리스너로 Codex를 연결해 재정의를 유지하거나, `syncResumeHistory`를 `false`로 두어 해당 대화가 Codex 자체 OpenAI 엔드포인트로 이어지는 것을 받아들이는 것입니다.
+
+루트 URL 재정의 방식으로 돌아갈 때 OpenCodex는 기록 사전 점검이 통과하더라도 기존 `[model_providers.opencodex]` 정의를 설정 적용 전에 유지합니다. 설정 적용 후나 백그라운드 기록 작업 시작 중에 Codex가 기록 형식을 전환해도 이전 `opencodex` 대화가 제공자를 계속 찾을 수 있습니다. 새 대화는 선택된 루트 제공자를 사용하며, 명시적 복원에는 기존의 별도 제거 검사가 적용됩니다.
 
 대화를 강제로 이전하려고 실행 중인 페이지 분할 대화 원본이나 스레드 행을 고치지 마세요. 복구 전에 해당 대화를 닫은 뒤, 개인 대화 내용을 올리지 말고 정확한 오류와 버전을 보고하세요. 백업이나 스크립트 성공만으로 표시 복구가 증명되지는 않으므로 Codex를 다시 열어 확인하세요.
+
+## 메인 계정 재인증 취소
+
+메인 계정의 기기 코드 재인증을 취소할 때 DELETE 요청의 일시적 실패, 네트워크 오류, 알 수 없거나 아직 종료되지 않은 상태의 응답이 발생하면 진행 중인 흐름과 취소 실패 표시를 유지하여 취소를 다시 시도할 수 있게 합니다. 일반적으로는 상태 조회도 계속하므로 로그인이 완료되면 이를 확인할 수 있습니다. 흐름이 `pending` 또는 `committing`일 때 재시도 가능한 취소 실패와 GET 상태 조회의 2xx 이외 HTTP 응답이 겹치면, 응답 도착 순서와 관계없이 서버가 마지막으로 제공한 기기 코드·확인 URL·진행 단계를 유지하거나 복원하여 같은 흐름의 취소를 다시 시도할 수 있게 합니다. GET의 HTTP 실패는 상태 조회를 종료하지만, 두 번째 로그인 POST를 보내지 않고 취소를 다시 시도할 수 있습니다. 종료 상태인 `failed` 응답은 흐름을 해제하고 정규화된 실패 사유를 표시하며, `succeeded` 응답만 로그인 성공을 알립니다. `cancelled`로 확인된 응답은 흐름을 해제하여 새 기기 코드 로그인을 시작할 수 있게 합니다. HTTP 404와 `unknown_flow` 코드가 명확하게 반환된 경우에도 만료된 흐름 ID를 해제하여 새 기기 코드 로그인을 시작할 수 있게 하지만, 로그인 성공이나 취소 확정으로 표시하지 않습니다. 이전 흐름에서 늦게 도착한 POST·GET·DELETE 응답은 새 흐름을 변경하거나 새 흐름의 로그인이 성공했다고 알릴 수 없습니다.

@@ -3,7 +3,7 @@ import type { AdapterEvent, OcxProviderConfig } from "../types";
 import type { ProviderAdapter } from "./base";
 import { isTranslatorBudgetExceededError } from "../lib/translator-budget";
 import { cursorExecDeniedMessage, cursorRequestDeclaresFullAccess } from "./cursor/exec-policy";
-import { isCursorBenignCancelError, isCursorInvalidArgumentError, isCursorOverflowRemintCandidate, isCursorRootEnvelopeError, safeCursorErrorMessage, type CursorSizeContext } from "./cursor/cursor-errors";
+import { isCursorBenignCancelError, isCursorIncompleteToolCallMessage, isCursorInvalidArgumentError, isCursorOverflowRemintCandidate, isCursorRootEnvelopeError, safeCursorErrorMessage, type CursorSizeContext } from "./cursor/cursor-errors";
 import { cursorCheckpointModelAffinityId, inferCursorContextWindow, isCursorExternalWireModel } from "./cursor/discovery";
 import { createCursorKvStore, type CursorKvStore } from "./cursor/kv-store";
 import { mapCursorServerMessage } from "./cursor/message-mapper";
@@ -32,8 +32,14 @@ import { isDebugEnabled } from "../lib/debug-settings";
 import { createAdapterTierMetadata } from "../providers/fastwire";
 import { estimateTokens } from "../lib/token-estimate";
 import {
+  clearCursorIncompleteToolRemint,
+  cursorIncompleteToolRemintScopeKey,
+  clearCursorEnvelopeEchoRemint,
+  cursorEnvelopeEchoRemintScopeKey,
   cursorOverflowRemintScopeKey,
   markCursorOverflowSurfaced,
+  recordCursorIncompleteToolRemint,
+  recordCursorEnvelopeEchoRemint,
   recordCursorOverflowRemint,
   rememberCursorThreadConversation,
   shouldSkipCursorOverflowRemint,
@@ -42,6 +48,7 @@ import {
 import { runCursorTurnWithRetry } from "./cursor/transport-retry";
 import { cursorRequestHasShellAlias, cursorRequestUsesCodeMode } from "./cursor/tool-definitions";
 import {
+  CURSOR_OUTPUT_GUARD_MAX_HOLD_BYTES,
   CURSOR_ECHO_RETRY_CONTINUATION_TEXT,
   CURSOR_ROUTING_COMMENTARY_RETRY_TEXT,
   CursorEnvelopeEchoSniffer,
@@ -55,6 +62,7 @@ import {
   CursorTransportDisabledError,
   type CursorTransportFactory,
 } from "./cursor/transport";
+import { cursorLiveRosterScope } from "./cursor/catalog";
 
 export const CURSOR_API_URL = "https://api2.cursor.sh";
 
@@ -99,11 +107,20 @@ function safeCursorTransportError(err: unknown, sizeContext?: CursorSizeContext)
  * estimate over the outgoing text vs the model's context window. Only used to keep
  * SMALL requests on the 429 class — unknown/large stays on the overflow mapping.
  */
-function cursorRequestSizeContext(request: { modelId: string; system: string[]; messages: { content: string }[] }): CursorSizeContext {
+function cursorRequestSizeContext(request: {
+  modelId: string;
+  _cursorIdentityScope?: string;
+  system: string[];
+  messages: { content: string }[];
+}): CursorSizeContext {
   const text = [...request.system, ...request.messages.map(message => message.content)].join("\n");
   return {
     estimatedInputTokens: estimateTokens(text, request.modelId),
-    contextWindow: inferCursorContextWindow(request.modelId),
+    // Prefers this identity scope's checkpoint `maxTokens` over the id heuristic
+    // so a plan-gated ceiling participates in the 0.5-window overflow vs 429 prior.
+    contextWindow: inferCursorContextWindow(request.modelId, {
+      identityScope: request._cursorIdentityScope,
+    }),
   };
 }
 
@@ -157,9 +174,11 @@ export function createCursorAdapter(provider: OcxProviderConfig, deps: CursorAda
         // Namespace thread→conversation derivation by the authenticated Cursor credential so
         // shared-proxy tenants with different Cursor accounts cannot collide on a parent thread id.
         // Prefer an already-set auth scope (e.g. Codex pool account) when present.
+        let liveRosterScope: string | undefined;
         if (!_parsed._cursorIdentityScope) {
           try {
             const token = resolveCursorToken(provider, incoming.headers);
+            liveRosterScope = cursorLiveRosterScope(provider.baseUrl, token);
             _parsed._cursorIdentityScope = createHash("sha256")
               .update("ocx:cursor:acct:")
               .update(token)
@@ -168,10 +187,19 @@ export function createCursorAdapter(provider: OcxProviderConfig, deps: CursorAda
           } catch {
             /* Missing credential is handled by the live transport path below. */
           }
+        } else {
+          try {
+            liveRosterScope = cursorLiveRosterScope(provider.baseUrl, resolveCursorToken(provider, incoming.headers));
+          } catch {
+            /* Missing credential is handled by the live transport path below. */
+          }
         }
         const inheritedCheckpointRef = _parsed._providerContinuation?.cursor?.checkpointRef;
         const previousConversationId = _parsed._cursorConversationId;
-        let request = createCursorRequest(_parsed);
+        let request = {
+          ...createCursorRequest(_parsed, { liveRosterScope }),
+          _cursorIdentityScope: _parsed._cursorIdentityScope?.trim() || "local",
+        };
         requestSizeContext = cursorRequestSizeContext(request);
         // The builder may derive a stable provider id from the client thread when Responses state
         // is unavailable. Rekey only existing state; there is nothing to migrate on a fresh turn,
@@ -190,6 +218,8 @@ export function createCursorAdapter(provider: OcxProviderConfig, deps: CursorAda
         let completedNormally = false;
         let lastTransport: { captured?: Uint8Array } | undefined;
         let emittedClientTool = false;
+        let sawIncompleteToolCall = false;
+        let sawMidstreamEnvelopeEcho = false;
         // Ordering proof for tool-suspended checkpoints: true only when the newest captured
         // checkpoint bytes arrived AFTER the turn emitted a client tool call, i.e. upstream
         // serialized its suspended-on-tool-call state. Only that snapshot can safely resume
@@ -234,6 +264,7 @@ export function createCursorAdapter(provider: OcxProviderConfig, deps: CursorAda
             coveredMessageCount,
             prefixDigest: cursorCoveredPrefixDigest(_parsed, coveredMessageCount),
             systemDigest: cursorInstructionDigest(_parsed),
+            toolSuspended: toolSuspendedCommit,
           });
           if (!checkpointRef) return;
           if (previousRef && previousRef !== checkpointRef) invalidateCursorCheckpoint(previousRef);
@@ -243,7 +274,8 @@ export function createCursorAdapter(provider: OcxProviderConfig, deps: CursorAda
               ...(_parsed._providerContinuation?.cursor ?? {}),
               conversationId: activeRequest.conversationId,
               // A tool-suspended checkpoint is only usable by the immediate trailing-toolResult
-              // continuation; the request-builder guard keys on checkpointUsable=false for that.
+              // continuation; the request-builder guard keys on this checkpointUsable=false and
+              // the snapshot's persisted toolSuspended flag for that.
               checkpointUsable: !toolSuspendedCommit,
               checkpointRef,
             },
@@ -284,6 +316,8 @@ export function createCursorAdapter(provider: OcxProviderConfig, deps: CursorAda
             ? new CursorRoutingCommentarySniffer()
             : undefined;
           let guardHeld: AdapterEvent[] = [];
+          let guardHeldBytes = 0;
+          const guardEncoder = new TextEncoder();
           // Exactly-once observation: every client-bound text delta passes through here
           // exactly once — held deltas only on release, ordinary deltas at emit time.
           const emitTextObserved = (event: AdapterEvent): void => {
@@ -296,7 +330,49 @@ export function createCursorAdapter(provider: OcxProviderConfig, deps: CursorAda
               emitTextObserved(held);
             }
             guardHeld = [];
+            guardHeldBytes = 0;
           };
+          // A single frame can carry a multi-megabyte payload (the transport accepts up to the
+          // 16 MiB Cursor message bound), so the serialized size is projected — object overhead
+          // plus raw payload length — BEFORE any encoded copy exists. Escapes only inflate the
+          // exact figure, making the raw length a safe lower bound for the overflow decision.
+          const GUARD_EVENT_OVERHEAD_BYTES = 64;
+          const projectedGuardEventBytes = (event: AdapterEvent): number =>
+            GUARD_EVENT_OVERHEAD_BYTES
+            + (event.type === "text_delta"
+              ? Buffer.byteLength(event.text, "utf8")
+              : event.type === "thinking_delta"
+                ? Buffer.byteLength(event.thinking, "utf8")
+                : 0);
+          const holdGuardEvent = (event: AdapterEvent) => {
+            if (guardHeldBytes + projectedGuardEventBytes(event) > CURSOR_OUTPUT_GUARD_MAX_HOLD_BYTES) {
+              // Too large to retain even unescaped: settle the sniffers, release what was held,
+              // and pass this event through without ever encoding it.
+              echoSniffer?.finish();
+              routingCommentarySniffer?.finish();
+              releaseGuardHeld();
+              if (event.type !== "heartbeat") emittedOutput = true;
+              emitTextObserved(event);
+              return false;
+            }
+            guardHeld.push(event);
+            // Count the complete retained representation, including per-event overhead, so an
+            // upstream cannot evade the cap with empty or non-text reasoning frames.
+            guardHeldBytes += guardEncoder.encode(JSON.stringify(event)).byteLength;
+            if (guardHeldBytes <= CURSOR_OUTPUT_GUARD_MAX_HOLD_BYTES) return true;
+            echoSniffer?.finish();
+            routingCommentarySniffer?.finish();
+            releaseGuardHeld();
+            return false;
+          };
+          // Bound each feed before a sniffer copies or encodes it. Their normal 40 B / 512 B
+          // hold thresholds are checked after classification, so one large frame previously
+          // let a late match inspect an arbitrary tail. Only these leading UTF-16 prefixes
+          // now participate in corrective retry; later text remains ordinary output.
+          const ECHO_SNIFF_FEED_MAX_CHARS = 512;
+          const ROUTING_SNIFF_FEED_MAX_CHARS = 2048;
+          const boundedSniffText = (text: string, maxChars: number): string =>
+            text.length > maxChars ? text.slice(0, maxChars) : text;
           const guardsSettled = () =>
             (!echoSniffer || echoSniffer.settled)
             && (!routingCommentarySniffer || routingCommentarySniffer.settled);
@@ -332,29 +408,35 @@ export function createCursorAdapter(provider: OcxProviderConfig, deps: CursorAda
                },
              });
              for (const event of events) {
+                if (event.type === "error" && isCursorIncompleteToolCallMessage(event.message)) {
+                  sawIncompleteToolCall = true;
+                }
                 if (!guardsSettled()) {
                   if (event.type === "text_delta") {
-                    guardHeld.push(event);
+                    // Classify the delta before the aggregate-cap check: an oversized first
+                    // delta must still pass the armed sniffers (echo/hallucination detection is
+                    // prefix-based), so the cap cannot disarm them before they see the text.
                     if (echoSniffer && !echoSniffer.settled) {
-                      const decision = echoSniffer.feed(event.text);
+                      const decision = echoSniffer.feed(boundedSniffText(event.text, ECHO_SNIFF_FEED_MAX_CHARS));
                       if (decision.kind === "echo") {
                         guardHeld = [];
                         throw new CursorToolResultEchoError(decision.marker);
                       }
                     }
                     if (routingCommentarySniffer && !routingCommentarySniffer.settled) {
-                      const decision = routingCommentarySniffer.feed(event.text);
+                      const decision = routingCommentarySniffer.feed(boundedSniffText(event.text, ROUTING_SNIFF_FEED_MAX_CHARS));
                       if (decision.kind === "hallucination") {
                         guardHeld = [];
                         throw new CursorRoutingCommentaryError();
                       }
                     }
+                    if (!holdGuardEvent(event)) continue;
                     if (guardsSettled()) releaseGuardHeld();
                     continue;
                   } else if (event.type === "thinking_delta" || event.type === "heartbeat") {
                     // Reasoning before first text stays ordered; liveness still passes through.
                     if (event.type === "thinking_delta") {
-                      guardHeld.push(event);
+                      holdGuardEvent(event);
                       continue;
                     }
                   } else {
@@ -371,7 +453,9 @@ export function createCursorAdapter(provider: OcxProviderConfig, deps: CursorAda
                 }
                 if (event.type !== "heartbeat") emittedOutput = true;
                 if (event.type === "done") {
-                  for (const finding of midstreamObserver?.findings() ?? []) {
+                  const midstreamFindings = midstreamObserver?.findings() ?? [];
+                  if (midstreamFindings.length > 0) sawMidstreamEnvelopeEcho = true;
+                  for (const finding of midstreamFindings) {
                     debugProviderDiagnostic("cursor", "midstream-envelope-echo", {
                       wireModel: activeRequest.modelId,
                       conversationHash: activeRequest.conversationId.slice(0, 16),
@@ -413,7 +497,10 @@ export function createCursorAdapter(provider: OcxProviderConfig, deps: CursorAda
         const remintConversationId = (failedConversationId: string) => {
           lastTransport = undefined;
           _parsed._cursorConversationId = undefined;
-          const next = createCursorRequest(_parsed, { forceFreshConversation: true });
+          const next = {
+            ...createCursorRequest(_parsed, { forceFreshConversation: true, liveRosterScope }),
+            _cursorIdentityScope: _parsed._cursorIdentityScope?.trim() || "local",
+          };
           rekeyContextUsage(failedConversationId, next.conversationId);
           _parsed._cursorConversationId = next.conversationId;
           // Persist recovery for store:false clients that send any stable Cursor thread owner, so
@@ -513,6 +600,69 @@ export function createCursorAdapter(provider: OcxProviderConfig, deps: CursorAda
               break;
             }
           }
+        }
+        const incompleteToolRemintScopeKey =
+          _parsed._cursorIsolateConversation !== true
+          && request.contextUsageStoreCheckpoints !== false
+            ? cursorIncompleteToolRemintScopeKey(
+                cursorClientThreadOwner(_parsed),
+                _parsed._cursorIdentityScope,
+              )
+            : null;
+        // Incomplete-tool errors are streamed, not thrown. Do not retry this turn; rotate only
+        // the next turn's id. request-prepare currently isolates compaction, but adapter callers
+        // can bypass that upstream invariant, so checkpoint storage is the local isolation boundary.
+        if (sawIncompleteToolCall && incompleteToolRemintScopeKey) {
+          if (recordCursorIncompleteToolRemint(incompleteToolRemintScopeKey)) {
+            if (inheritedCheckpointRef) invalidateCursorCheckpoint(inheritedCheckpointRef);
+            debugProviderDiagnostic("cursor", "incomplete-tool-remint", {
+              wireModel: request.modelId,
+              conversationHash: request.conversationId.slice(0, 16),
+            });
+            remintConversationId(request.conversationId);
+          } else {
+            debugProviderDiagnostic("cursor", "incomplete-tool-remint-exhausted", {
+              wireModel: request.modelId,
+              conversationHash: request.conversationId.slice(0, 16),
+            });
+          }
+        } else if (!sawIncompleteToolCall && completedNormally && incompleteToolRemintScopeKey) {
+          clearCursorIncompleteToolRemint(incompleteToolRemintScopeKey);
+        }
+        // A mid-stream envelope echo has ALREADY reached the client — the prefix sniffer only
+        // watches the first bytes of a turn, and grok-4.6 writes a real sentence before pasting
+        // the envelope. It cannot be quarantined, so the recovery is the same as the
+        // incomplete-tool case: leave this turn alone and rotate the next turn's id, otherwise
+        // the stored echo is replayed and primes the model to echo again.
+        //
+        // Its own budget, not the incomplete-tool one: echoing is cheap and repeatable while an
+        // incomplete client-tool stream is rare and structural, so a shared counter would let a
+        // persistently echoing model spend the allowance the other recovery needs. Skipped when
+        // the incomplete-tool arm already reminted this turn — one rotation is enough.
+        const envelopeEchoRemintScopeKey =
+          _parsed._cursorIsolateConversation !== true
+          && request.contextUsageStoreCheckpoints !== false
+            ? cursorEnvelopeEchoRemintScopeKey(
+                cursorClientThreadOwner(_parsed),
+                _parsed._cursorIdentityScope,
+              )
+            : null;
+        if (sawMidstreamEnvelopeEcho && !sawIncompleteToolCall && envelopeEchoRemintScopeKey) {
+          if (recordCursorEnvelopeEchoRemint(envelopeEchoRemintScopeKey)) {
+            if (inheritedCheckpointRef) invalidateCursorCheckpoint(inheritedCheckpointRef);
+            debugProviderDiagnostic("cursor", "midstream-envelope-echo-remint", {
+              wireModel: request.modelId,
+              conversationHash: request.conversationId.slice(0, 16),
+            });
+            remintConversationId(request.conversationId);
+          } else {
+            debugProviderDiagnostic("cursor", "midstream-envelope-echo-remint-exhausted", {
+              wireModel: request.modelId,
+              conversationHash: request.conversationId.slice(0, 16),
+            });
+          }
+        } else if (!sawMidstreamEnvelopeEcho && completedNormally && envelopeEchoRemintScopeKey) {
+          clearCursorEnvelopeEchoRemint(envelopeEchoRemintScopeKey);
         }
         if (
           request.checkpointInvalidationReason

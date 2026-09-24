@@ -22,9 +22,9 @@ describe("OpenCode Go curated transport manifest", () => {
   test("pins the complete official 2026-09-04 curated roster without duplicates", () => {
     expect(OPENCODE_GO_RESPONSES_MODELS).toHaveLength(4);
     expect(OPENCODE_GO_CHAT_MODELS).toHaveLength(15);
-    expect(OPENCODE_GO_ANTHROPIC_MODELS).toHaveLength(8);
-    expect(OPENCODE_GO_CURATED_MODELS).toHaveLength(27);
-    expect(new Set(OPENCODE_GO_CURATED_MODELS).size).toBe(27);
+    expect(OPENCODE_GO_ANTHROPIC_MODELS).toHaveLength(9);
+    expect(OPENCODE_GO_CURATED_MODELS).toHaveLength(28);
+    expect(new Set(OPENCODE_GO_CURATED_MODELS).size).toBe(28);
   });
 
   test("routes every curated model over the endpoint family OpenCode documents", () => {
