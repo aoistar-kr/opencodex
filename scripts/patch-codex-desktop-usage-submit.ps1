@@ -233,6 +233,9 @@ try {
   if ($LASTEXITCODE -ne 0) { throw "Could not take ownership of the installed Codex archive." }
   & "$env:SystemRoot\System32\icacls.exe" $target /grant "*S-1-5-32-544:F" /Q | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "Could not grant archive replacement access." }
+  $userSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+  & "$env:SystemRoot\System32\icacls.exe" $target /grant "*$userSid`:F" /Q | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw "Could not grant the current user archive write access." }
   Copy-FileContents -Source $PatchedArchive -Destination $target
 
   Write-Status -Stage "restart" -State "running" -Message "Restarting Codex desktop."
