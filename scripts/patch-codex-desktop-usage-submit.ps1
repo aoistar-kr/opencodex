@@ -139,10 +139,25 @@ function Stop-CodexPackageProcesses {
   $targets = @(Get-CimInstance Win32_Process | Where-Object {
     $_.ExecutablePath -and $_.ExecutablePath.StartsWith($PackageRoot, [StringComparison]::OrdinalIgnoreCase)
   })
-  foreach ($process in ($targets | Sort-Object ProcessId -Descending)) {
-    & "$env:SystemRoot\System32\taskkill.exe" /PID $process.ProcessId /T /F 2>$null | Out-Null
+  $targetIds = @{}
+  foreach ($process in $targets) { $targetIds[[uint32]$process.ProcessId] = $true }
+  $roots = @($targets | Where-Object { -not $targetIds.ContainsKey([uint32]$_.ParentProcessId) })
+  foreach ($process in $roots) {
+    $killer = Start-Process -FilePath "$env:SystemRoot\System32\taskkill.exe" `
+      -ArgumentList @("/PID", [string]$process.ProcessId, "/T", "/F") `
+      -WindowStyle Hidden -Wait -PassThru
+    if ($killer.ExitCode -ne 0 -and (Get-Process -Id $process.ProcessId -ErrorAction SilentlyContinue)) {
+      throw "Could not stop Codex process tree at PID $($process.ProcessId)."
+    }
   }
-  Start-Sleep -Seconds 2
+  for ($attempt = 0; $attempt -lt 10; $attempt++) {
+    $survivors = @(Get-CimInstance Win32_Process | Where-Object {
+      $_.ExecutablePath -and $_.ExecutablePath.StartsWith($PackageRoot, [StringComparison]::OrdinalIgnoreCase)
+    })
+    if ($survivors.Count -eq 0) { return }
+    Start-Sleep -Milliseconds 500
+  }
+  throw "Codex package processes survived shutdown."
 }
 
 if (-not $Worker) {
