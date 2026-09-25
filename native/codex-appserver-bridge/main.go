@@ -40,6 +40,15 @@ const (
 
 	forceSubmitTimeout = 10 * time.Second
 	maxIPCCommandBytes = 8 << 20
+
+	// Structured usage signal, read from the app-server's own rate-limit
+	// traffic. See the "Structured usage signal" section below.
+	usageUpdatedMethod   = "account/rateLimits/updated"
+	usageRateLimitMethod = "account/rateLimits/read"
+	usageSnapshotTTL     = 10 * time.Minute
+	usageTurnTTL         = 30 * time.Minute
+	usageFreshWindow     = 2 * time.Second
+	usageReadTimeout     = 4 * time.Second
 )
 
 // debugEnabled traces every parsed line on stderr. Off unless asked for, because
@@ -67,9 +76,11 @@ func main() {
 		return
 	case len(args) > 0 && args[0] == "--ocx-status":
 		os.Exit(runClient(ipcCommand{Type: "status"}))
+	case len(args) > 0 && args[0] == "--ocx-usage":
+		os.Exit(runClient(ipcCommand{Type: "usage"}))
 	case len(args) > 0 && args[0] == "--ocx-force-submit":
-		text, threadID := parseForceSubmitArgs(args[1:])
-		os.Exit(runClient(ipcCommand{Type: "force-submit", Text: text, ThreadID: threadID}))
+		text, threadID, modelLabel := parseForceSubmitOptions(args[1:])
+		os.Exit(runClient(ipcCommand{Type: "force-submit", Text: text, ThreadID: threadID, ModelLabel: modelLabel}))
 	}
 	os.Exit(runProxy(args))
 }
@@ -80,7 +91,13 @@ func main() {
 // list; a message that needs the literal text "--ocx-thread-id" can put it after
 // the flag and its value.
 func parseForceSubmitArgs(args []string) (string, string) {
+	text, threadID, _ := parseForceSubmitOptions(args)
+	return text, threadID
+}
+
+func parseForceSubmitOptions(args []string) (string, string, string) {
 	threadID := ""
+	modelLabel := ""
 	text := make([]string, 0, len(args))
 	for index := 0; index < len(args); index++ {
 		if args[index] == "--ocx-thread-id" {
@@ -93,9 +110,16 @@ func parseForceSubmitArgs(args []string) (string, string) {
 			}
 			continue
 		}
+		if args[index] == "--ocx-model-label" {
+			if index+1 < len(args) {
+				modelLabel = args[index+1]
+				index++
+			}
+			continue
+		}
 		text = append(text, args[index])
 	}
-	return strings.Join(text, " "), threadID
+	return strings.Join(text, " "), threadID, modelLabel
 }
 
 // stateDir is the user-only directory that holds the socket and descriptor.
@@ -301,7 +325,10 @@ func runProxy(args []string) int {
 		pendingThread:     map[string]bool{},
 		pendingOps:        map[string]threadOp{},
 		turnTemplates:     map[string]map[string]any{},
+		modelCatalog:      map[string]modelCatalogEntry{},
+		pendingModelLists: map[string]bool{},
 		injected:          map[string]chan injectedResult{},
+		pendingUsage:      map[string]chan injectedResult{},
 		appServerPid:      cmd.Process.Pid,
 		downstreamCLIPath: downstream,
 		downstreamSource:  downstreamSource,
@@ -398,8 +425,18 @@ type bridge struct {
 	pendingThread     map[string]bool
 	pendingOps        map[string]threadOp
 	turnTemplates     map[string]map[string]any
+	modelCatalog      map[string]modelCatalogEntry
+	pendingModelLists map[string]bool
 	lastTurnID        string
 	injected          map[string]chan injectedResult
+	// pendingUsage holds account/rateLimits/read requests the bridge is still
+	// waiting on. The value is nil for a read the app issued, and a waiter for
+	// a read the bridge issued itself.
+	pendingUsage      map[string]chan injectedResult
+	usageReadInFlight bool
+	usageState        usageSnapshot
+	usageBlock        usageBlock
+	usageTurnBlock    usageBlock
 	seq               int
 	appTurnSeq        int
 	acceptedSeq       int
@@ -422,6 +459,24 @@ func (b *bridge) markDisconnected() {
 	for requestID := range b.pendingOps {
 		delete(b.pendingOps, requestID)
 	}
+	for requestID := range b.pendingModelLists {
+		delete(b.pendingModelLists, requestID)
+	}
+	usageWaiters := make([]chan injectedResult, 0, len(b.pendingUsage))
+	for requestID := range b.pendingUsage {
+		// A nil entry is an app-issued read: it has no waiter to wake.
+		waiter := b.pendingUsage[requestID]
+		if waiter != nil {
+			usageWaiters = append(usageWaiters, waiter)
+		}
+		delete(b.pendingUsage, requestID)
+	}
+	b.usageReadInFlight = false
+	// The cached usage belongs to the connection that is gone. Keeping it would report a
+	// limit the next session has not confirmed.
+	b.usageState = usageSnapshot{}
+	b.usageBlock = usageBlock{}
+	b.usageTurnBlock = usageBlock{}
 	waiters := make([]chan injectedResult, 0, len(b.injected))
 	for requestID, waiter := range b.injected {
 		waiters = append(waiters, waiter)
@@ -430,7 +485,7 @@ func (b *bridge) markDisconnected() {
 	b.mu.Unlock()
 
 	errMsg := json.RawMessage(`{"code":-32000,"message":"backend disconnected"}`)
-	for _, waiter := range waiters {
+	for _, waiter := range append(waiters, usageWaiters...) {
 		waiter <- injectedResult{errMsg: errMsg}
 	}
 }
@@ -454,7 +509,9 @@ func (b *bridge) rollbackAppPending(raw []byte) {
 	}
 	b.mu.Lock()
 	delete(b.pendingThread, requestID)
+	delete(b.pendingModelLists, requestID)
 	delete(b.pendingOps, requestID)
+	delete(b.pendingUsage, requestID)
 	b.mu.Unlock()
 }
 
@@ -478,6 +535,51 @@ type wireMessage struct {
 	Params json.RawMessage `json:"params"`
 	Result json.RawMessage `json:"result"`
 	Error  json.RawMessage `json:"error"`
+}
+
+// modelCatalogEntry mirrors the fields the desktop model picker receives from
+// model/list. turn/start expects the entry's model slug (with id as a legacy
+// fallback), not the display label.
+type modelCatalogEntry struct {
+	ID                        string   `json:"id"`
+	Model                     string   `json:"model"`
+	DisplayName               string   `json:"displayName"`
+	SupportedReasoningEfforts []string `json:"supportedReasoningEfforts"`
+	DefaultReasoningEffort    string   `json:"defaultReasoningEffort"`
+}
+
+// The v2 schema advertises supportedReasoningEfforts as objects with a
+// reasoningEffort member, while older app-server builds returned strings.
+// Accept both wire shapes so a model/list response always populates the cache.
+func (entry *modelCatalogEntry) UnmarshalJSON(raw []byte) error {
+	var payload struct {
+		ID                        string          `json:"id"`
+		Model                     string          `json:"model"`
+		DisplayName               string          `json:"displayName"`
+		SupportedReasoningEfforts json.RawMessage `json:"supportedReasoningEfforts"`
+		DefaultReasoningEffort    string          `json:"defaultReasoningEffort"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return err
+	}
+	entry.ID, entry.Model, entry.DisplayName, entry.DefaultReasoningEffort = payload.ID, payload.Model, payload.DisplayName, payload.DefaultReasoningEffort
+	entry.SupportedReasoningEfforts = nil
+	var stringsOnly []string
+	if json.Unmarshal(payload.SupportedReasoningEfforts, &stringsOnly) == nil {
+		entry.SupportedReasoningEfforts = stringsOnly
+		return nil
+	}
+	var options []struct {
+		ReasoningEffort string `json:"reasoningEffort"`
+	}
+	if json.Unmarshal(payload.SupportedReasoningEfforts, &options) == nil {
+		for _, option := range options {
+			if value := strings.TrimSpace(option.ReasoningEffort); value != "" {
+				entry.SupportedReasoningEfforts = append(entry.SupportedReasoningEfforts, value)
+			}
+		}
+	}
+	return nil
 }
 
 func (b *bridge) observeWire(raw []byte, fromApp bool) {
@@ -535,8 +637,20 @@ func (b *bridge) observeAppMessage(message *wireMessage) {
 		if _, injectedID := b.injected[requestID]; injectedID {
 			return
 		}
+		// A usage read the bridge issued owns its id the same way: an app request that
+		// reused it must not be able to consume the injected response.
+		if _, usageID := b.pendingUsage[requestID]; usageID {
+			return
+		}
 	}
 	switch message.Method {
+	case "model/list":
+		if requestID != "" {
+			if b.pendingModelLists == nil {
+				b.pendingModelLists = map[string]bool{}
+			}
+			b.pendingModelLists[requestID] = true
+		}
 	case "thread/resume", "thread/read", "thread/items/list", "thread/turns/list":
 		if threadID == "" || requestID == "" {
 			return
@@ -578,6 +692,16 @@ func (b *bridge) observeAppMessage(message *wireMessage) {
 				b.turnTemplates[threadID] = template
 			}
 		}
+	case usageRateLimitMethod:
+		// The app polls its own usage. Tracking the request lets its response be
+		// parsed without the bridge injecting a read of its own.
+		if requestID == "" {
+			return
+		}
+		if b.pendingUsage == nil {
+			b.pendingUsage = map[string]chan injectedResult{}
+		}
+		b.pendingUsage[requestID] = nil
 	}
 }
 
@@ -608,15 +732,27 @@ func (b *bridge) observeBackendMessage(message *wireMessage) {
 	b.mu.Lock()
 	threadResponse := b.pendingThread[requestID]
 	delete(b.pendingThread, requestID)
+	modelListResponse := b.pendingModelLists[requestID]
+	delete(b.pendingModelLists, requestID)
 	op, hasOp := b.pendingOps[requestID]
 	delete(b.pendingOps, requestID)
 	waiter := b.injected[requestID]
 	delete(b.injected, requestID)
+	usageWaiter, isUsageRead := b.pendingUsage[requestID]
+	delete(b.pendingUsage, requestID)
+	// Only the bridge's own read owns the in-flight flag. The app polls the same
+	// method with its own ids, and its answer arriving mid-read must not let
+	// usage() start a second read on top of the one already running.
+	if isUsageRead && usageWaiter != nil {
+		b.usageReadInFlight = false
+	}
 	if waiter != nil {
 		// The injected request owns this canonical id. It can never confirm an
 		// app-originated operation, even if corrupt state somehow contains both.
 		threadResponse = false
 		hasOp = false
+		isUsageRead = false
+		usageWaiter = nil
 	}
 	b.mu.Unlock()
 
@@ -627,12 +763,32 @@ func (b *bridge) observeBackendMessage(message *wireMessage) {
 		if hasOp && op.accepts && missingThreadError(errorMessage(message.Error)) {
 			b.evictThread(op.threadID)
 		}
+		// A turn/start rejected because the account is out of usage is direct
+		// evidence, but only the structured codexErrorInfo field counts: a free
+		// text message is not a signal.
+		if hasOp && op.accepts && strings.EqualFold(errorCodexErrorInfo(message.Error), "usageLimitExceeded") {
+			b.noteTurnUsageBlock(op.threadID)
+		}
 		if waiter != nil {
 			waiter <- injectedResult{result: message.Result, errMsg: message.Error}
 		}
+		if usageWaiter != nil {
+			usageWaiter <- injectedResult{result: message.Result, errMsg: message.Error}
+		}
 		return
 	}
+	if modelListResponse && len(message.Result) > 0 {
+		b.applyModelList(message.Result)
+	}
 
+	if isUsageRead && len(message.Result) > 0 {
+		b.applyUsageRead(message.Result)
+	}
+	if usageWaiter != nil {
+		// Wake the bridge's own read with the answer so usage() reports the read
+		// instead of answering usage-timeout after the cache was already updated.
+		usageWaiter <- injectedResult{result: message.Result, errMsg: message.Error}
+	}
 	if threadResponse && len(message.Result) > 0 {
 		var payload struct {
 			Thread threadRef `json:"thread"`
@@ -713,6 +869,10 @@ func (b *bridge) observeNotification(message *wireMessage) {
 			b.lastTurnID = payload.Turn.ID
 		}
 		b.mu.Unlock()
+	case usageUpdatedMethod:
+		b.applyUsageUpdate(message.Params)
+	case "turn/completed":
+		b.observeTurnCompleted(message.Params)
 	}
 }
 
@@ -889,7 +1049,129 @@ func turnTemplate(params json.RawMessage) map[string]any {
 	return template
 }
 
-func (b *bridge) buildTurnStartParams(threadID, text string) map[string]any {
+func (b *bridge) applyModelList(result json.RawMessage) {
+	var payload struct {
+		Data []modelCatalogEntry `json:"data"`
+	}
+	if json.Unmarshal(result, &payload) != nil {
+		return
+	}
+	b.mu.Lock()
+	catalog := make(map[string]modelCatalogEntry, len(b.modelCatalog)+len(payload.Data))
+	for key, entry := range b.modelCatalog {
+		catalog[key] = entry
+	}
+	for _, entry := range payload.Data {
+		if strings.TrimSpace(entry.ID) == "" && strings.TrimSpace(entry.Model) == "" && strings.TrimSpace(entry.DisplayName) == "" {
+			continue
+		}
+		// Keep every useful lookup key, while retaining the exact fields from
+		// the app-server response for the turn/start override.
+		for _, key := range []string{entry.ID, entry.Model, entry.DisplayName} {
+			if key = strings.TrimSpace(key); key != "" {
+				catalog[key] = entry
+			}
+		}
+	}
+	b.modelCatalog = catalog
+	b.mu.Unlock()
+}
+
+type resolvedModelLabel struct {
+	model  string
+	effort string
+}
+
+func effortForEntry(entry modelCatalogEntry, value string) string {
+	for _, effort := range entry.SupportedReasoningEfforts {
+		if strings.EqualFold(strings.TrimSpace(effort), strings.TrimSpace(value)) {
+			return strings.TrimSpace(effort)
+		}
+	}
+	return ""
+}
+
+func splitOpenCodeGoLabel(raw string) (string, string) {
+	for _, effort := range []string{"minimal", "low", "medium", "high", "xhigh", "max", "ultra"} {
+		for _, suffix := range []string{" " + effort, " (" + effort + ")", " [" + effort + "]"} {
+			if len(raw) > len(suffix) && strings.EqualFold(raw[len(raw)-len(suffix):], suffix) {
+				return strings.TrimSpace(raw[:len(raw)-len(suffix)]), effort
+			}
+		}
+	}
+	return raw, ""
+}
+
+// resolveModelLabel uses the longest displayName prefix so labels such as
+// "GPT (high)" resolve before a shorter "GPT" entry. Only a known
+// reasoning effort may follow the prefix; an unknown label is rejected rather
+// than silently reusing the stale turn template.
+func (b *bridge) resolveModelLabelLocked(label string) (resolvedModelLabel, error) {
+	raw := strings.TrimSpace(label)
+	if raw == "" {
+		return resolvedModelLabel{}, nil
+	}
+	// Custom routed slugs are already the actual wire model. Preserve them
+	// instead of rewriting an opencode-go/... slug through an alias entry or
+	// stale catalog. The desktop may append a canonical effort to the picker
+	// label; strip only that known suffix and keep the slug itself byte-for-byte.
+	if strings.HasPrefix(raw, "opencode-go/") {
+		model, effort := splitOpenCodeGoLabel(raw)
+		return resolvedModelLabel{model: model, effort: effort}, nil
+	}
+	entries := make([]modelCatalogEntry, 0, len(b.modelCatalog))
+	seen := map[string]bool{}
+	for _, entry := range b.modelCatalog {
+		key := entry.ID + "\x00" + entry.Model + "\x00" + entry.DisplayName
+		if !seen[key] {
+			entries = append(entries, entry)
+			seen[key] = true
+		}
+	}
+	bestLen := -1
+	var best modelCatalogEntry
+	bestEffort := ""
+	for _, entry := range entries {
+		name := strings.TrimSpace(entry.DisplayName)
+		if name == "" {
+			continue
+		}
+		if strings.EqualFold(raw, name) || strings.EqualFold(raw, strings.TrimSpace(entry.Model)) || strings.EqualFold(raw, strings.TrimSpace(entry.ID)) {
+			if len(name) > bestLen {
+				best, bestLen, bestEffort = entry, len(name), effortForEntry(entry, entry.DefaultReasoningEffort)
+			}
+			continue
+		}
+		if len(raw) <= len(name) || !strings.EqualFold(raw[:len(name)], name) {
+			continue
+		}
+		suffix := strings.TrimSpace(raw[len(name):])
+		suffix = strings.Trim(suffix, "()[]{}")
+		suffix = strings.TrimSpace(strings.TrimLeft(suffix, "-:|/·, 	"))
+		if effort := effortForEntry(entry, suffix); effort != "" && len(name) > bestLen {
+			best, bestLen, bestEffort = entry, len(name), effort
+		}
+	}
+	if bestLen < 0 {
+		return resolvedModelLabel{}, fmt.Errorf("unknown model picker label %q", raw)
+	}
+	model := strings.TrimSpace(best.Model)
+	if model == "" {
+		model = strings.TrimSpace(best.ID)
+	}
+	if model == "" {
+		return resolvedModelLabel{}, fmt.Errorf("model picker label %q has no wire model", raw)
+	}
+	return resolvedModelLabel{model: model, effort: bestEffort}, nil
+}
+
+func (b *bridge) resolveModelLabel(label string) (resolvedModelLabel, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.resolveModelLabelLocked(label)
+}
+
+func (b *bridge) buildTurnStartParams(threadID, text, modelLabel string) (map[string]any, error) {
 	params := map[string]any{}
 	// The template is only ever the selected thread's own parameters. Applying
 	// one thread's model, effort, or sandbox policy to another is exactly the
@@ -905,35 +1187,51 @@ func (b *bridge) buildTurnStartParams(threadID, text string) map[string]any {
 		"text":          text,
 		"text_elements": []any{},
 	}}
-	return params
+	if strings.TrimSpace(modelLabel) != "" {
+		resolved, err := b.resolveModelLabelLocked(modelLabel)
+		if err != nil {
+			return nil, err
+		}
+		params["model"] = resolved.model
+		if resolved.effort != "" {
+			params["effort"] = resolved.effort
+		} else {
+			// Never carry the previous model's effort into a newly selected model.
+			// Omitting the key lets the app-server apply that model's own default.
+			delete(params, "effort")
+		}
+	}
+	return params, nil
 }
 
 type ipcCommand struct {
-	Type     string `json:"type"`
-	ID       string `json:"id,omitempty"`
-	Text     string `json:"text,omitempty"`
-	ThreadID string `json:"threadId,omitempty"`
+	Type       string `json:"type"`
+	ID         string `json:"id,omitempty"`
+	Text       string `json:"text,omitempty"`
+	ThreadID   string `json:"threadId,omitempty"`
+	ModelLabel string `json:"modelLabel,omitempty"`
 }
 
 type ipcReply struct {
-	Type             string `json:"type"`
-	Command          string `json:"command,omitempty"`
-	ID               string `json:"id,omitempty"`
-	OK               bool   `json:"ok"`
-	Error            string `json:"error,omitempty"`
-	Message          string `json:"message,omitempty"`
-	ThreadID         string `json:"threadId,omitempty"`
-	AcceptedThreadID string `json:"backendAcceptedThreadId,omitempty"`
-	RequestID        string `json:"requestId,omitempty"`
-	TurnID           string `json:"turnId,omitempty"`
-	LastTurnID       string `json:"lastTurnId,omitempty"`
-	Connected        *bool  `json:"connected,omitempty"`
-	AppServerPid     int    `json:"appServerPid,omitempty"`
-	InjectedTurns    int    `json:"injectedTurns,omitempty"`
-	KnownThreads     int    `json:"knownThreads,omitempty"`
-	UptimeMs         int64  `json:"uptimeMs,omitempty"`
-	DownstreamCli    string `json:"downstreamCli,omitempty"`
-	DownstreamSrc    string `json:"downstreamCliSource,omitempty"`
+	Type             string      `json:"type"`
+	Command          string      `json:"command,omitempty"`
+	ID               string      `json:"id,omitempty"`
+	OK               bool        `json:"ok"`
+	Error            string      `json:"error,omitempty"`
+	Message          string      `json:"message,omitempty"`
+	ThreadID         string      `json:"threadId,omitempty"`
+	AcceptedThreadID string      `json:"backendAcceptedThreadId,omitempty"`
+	RequestID        string      `json:"requestId,omitempty"`
+	TurnID           string      `json:"turnId,omitempty"`
+	LastTurnID       string      `json:"lastTurnId,omitempty"`
+	Connected        *bool       `json:"connected,omitempty"`
+	AppServerPid     int         `json:"appServerPid,omitempty"`
+	InjectedTurns    int         `json:"injectedTurns,omitempty"`
+	KnownThreads     int         `json:"knownThreads,omitempty"`
+	UptimeMs         int64       `json:"uptimeMs,omitempty"`
+	DownstreamCli    string      `json:"downstreamCli,omitempty"`
+	DownstreamSrc    string      `json:"downstreamCliSource,omitempty"`
+	Usage            *usageReply `json:"usage,omitempty"`
 }
 
 func (b *bridge) serveIPC() {
@@ -985,6 +1283,8 @@ func (b *bridge) dispatch(command ipcCommand) ipcReply {
 		return b.forceSubmit(command)
 	case "status":
 		return b.status(command)
+	case "usage":
+		return b.usage(command)
 	default:
 		return ipcReply{
 			Type:    "result",
@@ -1048,7 +1348,13 @@ func (b *bridge) forceSubmit(command ipcCommand) ipcReply {
 			break
 		}
 	}
-	params := b.buildTurnStartParams(threadID, command.Text)
+	params, modelErr := b.buildTurnStartParams(threadID, command.Text, command.ModelLabel)
+	if modelErr != nil {
+		b.mu.Unlock()
+		reply.Error = "unknown-model-label"
+		reply.Message = modelErr.Error()
+		return reply
+	}
 	waiter := make(chan injectedResult, 1)
 	b.injected[requestKey] = waiter
 	b.mu.Unlock()
@@ -1135,6 +1441,592 @@ func (b *bridge) evictThread(threadID string) {
 	}
 }
 
+// ---------------------------------------------------------------------------------------
+// Structured usage signal
+//
+// The helper in front of this socket must never invent a usage block, so the bridge reports
+// only what the app-server itself said. A hard block is exactly one of the official
+// structured signals:
+//
+//   - a rateLimits snapshot whose top-level rateLimitReachedType is set,
+//   - a rateLimits snapshot with spendControlReached true,
+//   - a full account/rateLimits/read whose response-level ordinaryUsageAllowed is false,
+//   - the operator's own foreground root turn reporting codexErrorInfo
+//     usageLimitExceeded, in turn/completed or in a failed turn/start.
+//
+// usedPercent and credits are carried as advisory context and never confirm a block on their
+// own: the protocol says a client must not infer recovery from percentages or reset times. A
+// shape this bridge does not recognise leaves the state unknown, which keeps the helper's own
+// UI inspection in charge for every provider the bridge has no structured signal for.
+// account/rateLimits/updated is a sparse rolling update and carries no ordinaryUsageAllowed,
+// so that flag is only ever set by an authoritative read.
+// ---------------------------------------------------------------------------------------
+
+// usageSnapshot is the merged view of every structured usage message observed so far. A full
+// account/rateLimits/read replaces the baseline, because it is the authoritative document: a
+// window the read no longer mentions is gone. account/rateLimits/updated is sparse, so it only
+// replaces the keys it actually carried.
+type usageSnapshot struct {
+	observedAt int64
+	source     string
+	accountID  string
+	// ordinaryAllows is the response-level ordinaryUsageAllowed from the last full
+	// read. It sits next to rateLimits, not inside it, and a sparse update never
+	// carries one, so only an authoritative read ever sets or clears it.
+	ordinaryAllows *bool
+	top            map[string]json.RawMessage
+	nested         map[string]map[string]json.RawMessage
+}
+
+// usageBlock records one confirmed hard block and the evidence that produced it.
+type usageBlock struct {
+	at        int64
+	source    string
+	reason    string
+	accountID string
+}
+
+// usageReply is the additive usage section of a reply. limitState is the only field the
+// helper acts on: confirmed is a hard block, advisory is context, unknown is nothing.
+type usageReply struct {
+	LimitState      string             `json:"limitState"`
+	Source          string             `json:"source,omitempty"`
+	Reason          string             `json:"reason,omitempty"`
+	ObservedAt      int64              `json:"observedAt,omitempty"`
+	ObservedAgeMs   int64              `json:"observedAgeMs,omitempty"`
+	AccountID       string             `json:"accountId,omitempty"`
+	LimitID         string             `json:"limitId,omitempty"`
+	NormalModelSlug string             `json:"normalModelSlug,omitempty"`
+	PlanType        string             `json:"planType,omitempty"`
+	Primary         *usageWindowReply  `json:"primary,omitempty"`
+	Secondary       *usageWindowReply  `json:"secondary,omitempty"`
+	Credits         *usageCreditsReply `json:"credits,omitempty"`
+}
+
+type usageWindowReply struct {
+	UsedPercent        *float64 `json:"usedPercent,omitempty"`
+	WindowDurationMins *int64   `json:"windowDurationMins,omitempty"`
+	ResetsAt           *int64   `json:"resetsAt,omitempty"`
+}
+
+type usageCreditsReply struct {
+	HasCredits *bool  `json:"hasCredits,omitempty"`
+	Unlimited  *bool  `json:"unlimited,omitempty"`
+	Balance    string `json:"balance,omitempty"`
+}
+
+func nowMillis() int64 { return time.Now().UnixMilli() }
+
+func jsonObjectField(raw map[string]json.RawMessage, key string) (map[string]json.RawMessage, bool) {
+	value, ok := raw[key]
+	if !ok {
+		return nil, false
+	}
+	var nested map[string]json.RawMessage
+	if json.Unmarshal(value, &nested) != nil || nested == nil {
+		return nil, false
+	}
+	return nested, true
+}
+
+func jsonBoolField(raw map[string]json.RawMessage, key string) (bool, bool) {
+	value, ok := raw[key]
+	if !ok {
+		return false, false
+	}
+	var flag bool
+	if json.Unmarshal(value, &flag) != nil {
+		return false, false
+	}
+	return flag, true
+}
+
+func jsonNumberField(raw map[string]json.RawMessage, key string) (float64, bool) {
+	value, ok := raw[key]
+	if !ok {
+		return 0, false
+	}
+	var number float64
+	if json.Unmarshal(value, &number) != nil {
+		return 0, false
+	}
+	return number, true
+}
+
+func jsonIntField(raw map[string]json.RawMessage, key string) (int64, bool) {
+	number, ok := jsonNumberField(raw, key)
+	if !ok {
+		return 0, false
+	}
+	return int64(number), true
+}
+
+func jsonTextField(raw map[string]json.RawMessage, key string) string {
+	value, ok := raw[key]
+	if !ok {
+		return ""
+	}
+	var text string
+	if json.Unmarshal(value, &text) != nil {
+		return ""
+	}
+	return strings.TrimSpace(text)
+}
+
+// jsonSetField reports a key present with a value other than null. A null field means "not
+// reported", which is what keeps a limit that has since reset from reading as a block.
+func jsonSetField(raw map[string]json.RawMessage, key string) bool {
+	value, ok := raw[key]
+	if !ok {
+		return false
+	}
+	trimmed := strings.TrimSpace(string(value))
+	return trimmed != "" && trimmed != "null"
+}
+
+func mergeUsageFields(dst, src map[string]json.RawMessage) map[string]json.RawMessage {
+	if len(src) == 0 {
+		return dst
+	}
+	if dst == nil {
+		dst = make(map[string]json.RawMessage, len(src))
+	}
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
+}
+
+// usageNestedObjects are the snapshot members the bridge tracks per key. The schema also
+// defines individual_limit, a SpendControlLimitSnapshot the bridge does not track here.
+var usageNestedObjects = []string{"primary", "secondary", "credits"}
+
+// merge replaces only the keys the incoming object actually carried. A sparse update needs
+// this: replacing the whole document with one would erase the windows it did not mention.
+func (s *usageSnapshot) merge(incoming map[string]json.RawMessage) {
+	s.top = mergeUsageFields(s.top, incoming)
+	for _, key := range usageNestedObjects {
+		child, ok := jsonObjectField(incoming, key)
+		if !ok {
+			continue
+		}
+		if s.nested == nil {
+			s.nested = map[string]map[string]json.RawMessage{}
+		}
+		s.nested[key] = mergeUsageFields(s.nested[key], child)
+	}
+}
+
+// replace makes the incoming document the new baseline. Only a full read may do this, so a
+// window that read left out of its answer stops being reported.
+func (s *usageSnapshot) replace(incoming map[string]json.RawMessage) {
+	s.top = make(map[string]json.RawMessage, len(incoming))
+	for key, value := range incoming {
+		s.top[key] = value
+	}
+	s.nested = map[string]map[string]json.RawMessage{}
+	for _, key := range usageNestedObjects {
+		if child, ok := jsonObjectField(incoming, key); ok {
+			s.nested[key] = child
+		}
+	}
+}
+
+func (s usageSnapshot) present() bool { return len(s.top) > 0 || len(s.nested) > 0 }
+
+// reachedTypeSource names the member that carries rateLimitReachedType, or "" when none
+// does. Only the snapshot itself carries it: the RateLimitWindow members under primary and
+// secondary do not, and individual_limit is a SpendControlLimitSnapshot without one. The
+// app-server serializes an unset variant as null, so presence alone is not enough.
+func (s usageSnapshot) reachedTypeSource() string {
+	if jsonSetField(s.top, "rateLimitReachedType") {
+		return "rateLimitReachedType"
+	}
+	return ""
+}
+
+// blockEvidence reports the official hard-block signal this snapshot carries, or "".
+func (s usageSnapshot) blockEvidence() string {
+	if source := s.reachedTypeSource(); source != "" {
+		return source + " is set"
+	}
+	if reached, ok := jsonBoolField(s.top, "spendControlReached"); ok && reached {
+		return "spendControlReached is true"
+	}
+	if spend, ok := jsonObjectField(s.top, "spendControl"); ok {
+		if reached, ok := jsonBoolField(spend, "reached"); ok && reached {
+			return "spendControl.reached is true"
+		}
+	}
+	if s.ordinaryAllows != nil && !*s.ordinaryAllows {
+		return "ordinaryUsageAllowed is false"
+	}
+	return ""
+}
+
+// observeUsageSnapshot folds one structured usage object into the cache and records the hard
+// block it carries. full marks the authoritative account/rateLimits/read; allowed is the
+// response-level ordinaryUsageAllowed, which only a read carries. Absence of evidence is never
+// evidence: a snapshot with no block signal leaves an earlier confirmation alone until its TTL
+// runs out.
+func (b *bridge) observeUsageSnapshot(snapshot map[string]json.RawMessage, source, accountID string, full bool, allowed *bool) {
+	if len(snapshot) == 0 && allowed == nil {
+		return
+	}
+	at := nowMillis()
+	if accountID == "" {
+		accountID = jsonTextField(snapshot, "accountId")
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(snapshot) > 0 {
+		if full {
+			b.usageState.replace(snapshot)
+		} else {
+			b.usageState.merge(snapshot)
+		}
+		b.usageState.observedAt = at
+		b.usageState.source = source
+		if accountID != "" {
+			b.usageState.accountID = accountID
+		}
+	}
+	if allowed != nil {
+		b.usageState.ordinaryAllows = allowed
+	}
+	if evidence := b.usageState.blockEvidence(); evidence != "" {
+		b.usageBlock = usageBlock{at: at, source: source, reason: evidence, accountID: accountID}
+		return
+	}
+	// An explicit "ordinary usage is allowed" retracts the snapshot's own confirmation, and
+	// only for the account it answered for. The turn signal is direct evidence from the
+	// operator's own turn and is left to its own TTL.
+	if allowed != nil && *allowed && sameUsageScope(b.usageBlock.accountID, accountID) {
+		b.usageBlock = usageBlock{}
+	}
+}
+
+// sameUsageScope reports whether a confirmation and a fresh read describe the same account. An
+// unnamed account on either side cannot be narrowed, so the answer still counts.
+func sameUsageScope(confirmed, read string) bool {
+	return confirmed == "" || read == "" || confirmed == read
+}
+
+// applyUsageRead consumes the app-server's answer to account/rateLimits/read, whether the
+// app issued it or the bridge did. ordinaryUsageAllowed sits at the response level, next to
+// rateLimits, so it is read there and not from inside the snapshot.
+func (b *bridge) applyUsageRead(result json.RawMessage) {
+	payload := map[string]json.RawMessage{}
+	if json.Unmarshal(result, &payload) != nil {
+		return
+	}
+	snapshot, ok := jsonObjectField(payload, "rateLimits")
+	if !ok {
+		// No rateLimits container: a provider that has none, or a shape this bridge does
+		// not know. Either way the state stays as it is and the helper keeps its own scan.
+		return
+	}
+	var allowed *bool
+	if value, ok := jsonBoolField(payload, "ordinaryUsageAllowed"); ok {
+		allowed = &value
+	}
+	b.observeUsageSnapshot(snapshot, usageRateLimitMethod, jsonTextField(payload, "accountId"), true, allowed)
+}
+
+// applyUsageUpdate consumes account/rateLimits/updated, which carries only what changed.
+func (b *bridge) applyUsageUpdate(params json.RawMessage) {
+	payload := map[string]json.RawMessage{}
+	if json.Unmarshal(params, &payload) != nil {
+		return
+	}
+	snapshot := payload
+	if nested, ok := jsonObjectField(payload, "rateLimits"); ok {
+		snapshot = nested
+	}
+	b.observeUsageSnapshot(snapshot, usageUpdatedMethod, jsonTextField(payload, "accountId"), false, nil)
+}
+
+// observeTurnCompleted records the strongest signal there is: the operator's own foreground
+// root turn came back failed because the account hit its usage limit. A subagent turn, and
+// any thread that is not the accepted or active foreground root, is ignored.
+func (b *bridge) observeTurnCompleted(params json.RawMessage) {
+	var payload struct {
+		ThreadID       string          `json:"threadId"`
+		CodexErrorInfo json.RawMessage `json:"codexErrorInfo"`
+		Turn           struct {
+			CodexErrorInfo json.RawMessage `json:"codexErrorInfo"`
+			Error          struct {
+				CodexErrorInfo json.RawMessage `json:"codexErrorInfo"`
+			} `json:"error"`
+		} `json:"turn"`
+	}
+	if json.Unmarshal(params, &payload) != nil || payload.ThreadID == "" {
+		return
+	}
+	name := codexErrorName(payload.Turn.Error.CodexErrorInfo)
+	if name == "" {
+		name = codexErrorName(payload.Turn.CodexErrorInfo)
+	}
+	if name == "" {
+		name = codexErrorName(payload.CodexErrorInfo)
+	}
+	if !strings.EqualFold(name, "usageLimitExceeded") {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.backgroundThreads[payload.ThreadID] {
+		return
+	}
+	root := payload.ThreadID == b.acceptedThreadID ||
+		(payload.ThreadID == b.activeThreadID && b.foregroundThreads[payload.ThreadID])
+	if !root {
+		return
+	}
+	b.usageTurnBlock = usageBlock{
+		at:     nowMillis(),
+		source: "turn/completed",
+		reason: "the foreground root turn ended with codexErrorInfo usageLimitExceeded",
+	}
+}
+
+// codexErrorName normalizes codexErrorInfo, which is a bare string in some app-server builds
+// and a tagged object ({"type": ...} or {"kind": ...}) in others.
+func codexErrorName(raw json.RawMessage) string {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return ""
+	}
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return strings.TrimSpace(text)
+	}
+	var tagged map[string]json.RawMessage
+	if json.Unmarshal(raw, &tagged) != nil {
+		return ""
+	}
+	for _, key := range []string{"type", "kind", "name", "codexErrorInfo"} {
+		if value := jsonTextField(tagged, key); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+// errorCodexErrorInfo extracts the structured codexErrorInfo name from a JSON-RPC error
+// object. The app-server reports it beside the message or under data; a free-text error
+// message is not a signal.
+func errorCodexErrorInfo(raw json.RawMessage) string {
+	var payload struct {
+		CodexErrorInfo json.RawMessage `json:"codexErrorInfo"`
+		Data           struct {
+			CodexErrorInfo json.RawMessage `json:"codexErrorInfo"`
+		} `json:"data"`
+	}
+	if len(bytes.TrimSpace(raw)) == 0 || json.Unmarshal(raw, &payload) != nil {
+		return ""
+	}
+	if name := codexErrorName(payload.CodexErrorInfo); name != "" {
+		return name
+	}
+	return codexErrorName(payload.Data.CodexErrorInfo)
+}
+
+// noteTurnUsageBlock records a turn/start the app-server rejected with codexErrorInfo
+// usageLimitExceeded. Only the operator's own foreground root thread counts: a subagent or
+// background thread hitting the same limit says nothing about the composer.
+func (b *bridge) noteTurnUsageBlock(threadID string) {
+	if threadID == "" {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.backgroundThreads[threadID] {
+		return
+	}
+	if threadID != b.acceptedThreadID &&
+		!(threadID == b.activeThreadID && b.foregroundThreads[threadID]) {
+		return
+	}
+	b.usageTurnBlock = usageBlock{
+		at:        nowMillis(),
+		source:    "turn/start",
+		reason:    "a foreground root turn/start was rejected with codexErrorInfo usageLimitExceeded",
+		accountID: b.usageState.accountID,
+	}
+}
+
+// activeUsageBlockLocked returns the newest confirmation still inside its TTL. The turn
+// signal wins because it is direct evidence from the operator's own turn. Both expire so a
+// limit that has since reset cannot keep the helper's shortcut alive.
+func (b *bridge) activeUsageBlockLocked(at int64) *usageBlock {
+	if block := b.usageTurnBlock; block.at != 0 && at-block.at <= usageTurnTTL.Milliseconds() {
+		return &block
+	}
+	if block := b.usageBlock; block.at != 0 && at-block.at <= usageSnapshotTTL.Milliseconds() {
+		return &block
+	}
+	return nil
+}
+
+// usageReplyLocked reports the cached structured state. It never blocks and never injects,
+// because the helper reads it through --ocx-status and a status poll has to stay cheap; the
+// explicit --ocx-usage call is the one that may ask the app-server for a fresh read.
+func (b *bridge) usageReplyLocked(now time.Time) *usageReply {
+	at := now.UnixMilli()
+	reply := &usageReply{LimitState: "unknown"}
+	snapshot := b.usageState
+	if snapshot.present() {
+		reply.ObservedAt = snapshot.observedAt
+		reply.ObservedAgeMs = at - snapshot.observedAt
+		reply.Source = snapshot.source
+		reply.AccountID = snapshot.accountID
+		reply.LimitID = jsonTextField(snapshot.top, "limitId")
+		reply.NormalModelSlug = jsonTextField(snapshot.top, "normalModelSlug")
+		reply.PlanType = jsonTextField(snapshot.top, "planType")
+		reply.Primary = usageWindowFrom(snapshot.nested["primary"])
+		reply.Secondary = usageWindowFrom(snapshot.nested["secondary"])
+		reply.Credits = usageCreditsFrom(snapshot.nested["credits"])
+	}
+	if block := b.activeUsageBlockLocked(at); block != nil {
+		reply.LimitState = "confirmed"
+		reply.Source = block.source
+		reply.Reason = block.reason
+		return reply
+	}
+	if snapshot.present() {
+		// Advisory only: a percentage or a credit balance never proves the app-server is
+		// refusing turns, so the helper keeps its own UI inspection alongside this.
+		reply.LimitState = "advisory"
+		reply.Reason = "a usage snapshot is cached but carries no hard-block signal"
+	}
+	return reply
+}
+
+func usageWindowFrom(fields map[string]json.RawMessage) *usageWindowReply {
+	if len(fields) == 0 {
+		return nil
+	}
+	reply := &usageWindowReply{}
+	if value, ok := jsonNumberField(fields, "usedPercent"); ok {
+		reply.UsedPercent = &value
+	}
+	if value, ok := jsonIntField(fields, "windowDurationMins"); ok {
+		reply.WindowDurationMins = &value
+	}
+	if value, ok := jsonIntField(fields, "resetsAt"); ok {
+		reply.ResetsAt = &value
+	}
+	return reply
+}
+
+func usageCreditsFrom(fields map[string]json.RawMessage) *usageCreditsReply {
+	if len(fields) == 0 {
+		return nil
+	}
+	reply := &usageCreditsReply{Balance: jsonTextField(fields, "balance")}
+	if value, ok := jsonBoolField(fields, "hasCredits"); ok {
+		reply.HasCredits = &value
+	}
+	if value, ok := jsonBoolField(fields, "unlimited"); ok {
+		reply.Unlimited = &value
+	}
+	return reply
+}
+
+// nextUsageRequestLocked picks an id no pending request owns. A response is matched by
+// canonical id, so reusing an id that is still in flight would answer the wrong slot.
+func (b *bridge) nextUsageRequestLocked() (string, string) {
+	for {
+		b.seq++
+		requestID := fmt.Sprintf("ocx-usage-%d-%d", os.Getpid(), b.seq)
+		requestKey := "s:" + requestID
+		_, pendingOp := b.pendingOps[requestKey]
+		_, pendingThread := b.pendingThread[requestKey]
+		_, pendingInjection := b.injected[requestKey]
+		_, pendingUsage := b.pendingUsage[requestKey]
+		if !pendingOp && !pendingThread && !pendingInjection && !pendingUsage {
+			return requestID, requestKey
+		}
+	}
+}
+
+// usage answers the explicit --ocx-usage call. When the cached snapshot is stale and no read
+// is in flight it asks the app-server for its own usage once, then answers from the cache. A
+// provider with no rate limits, or an app-server that stays silent, leaves the reply at
+// unknown, which is the fail-open direction: the helper's own inspection decides then.
+func (b *bridge) usage(command ipcCommand) ipcReply {
+	reply := ipcReply{Type: "result", Command: "usage", ID: command.ID}
+	now := time.Now()
+	b.mu.Lock()
+	if !b.connected {
+		reply.Usage = b.usageReplyLocked(now)
+		b.mu.Unlock()
+		reply.Error = "backend-not-connected"
+		reply.Message = "the app-server connection has closed"
+		return reply
+	}
+	fresh := b.usageState.observedAt != 0 && now.UnixMilli()-b.usageState.observedAt < usageFreshWindow.Milliseconds()
+	if fresh || b.usageReadInFlight {
+		reply.OK = true
+		reply.Usage = b.usageReplyLocked(now)
+		b.mu.Unlock()
+		return reply
+	}
+	requestID, requestKey := b.nextUsageRequestLocked()
+	waiter := make(chan injectedResult, 1)
+	if b.pendingUsage == nil {
+		b.pendingUsage = map[string]chan injectedResult{}
+	}
+	b.pendingUsage[requestKey] = waiter
+	b.usageReadInFlight = true
+	b.mu.Unlock()
+
+	payload, err := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      requestID,
+		"method":  usageRateLimitMethod,
+		"params":  map[string]any{},
+	})
+	if err == nil {
+		err = b.writeBackend(append(payload, '\n'))
+	}
+	if err != nil {
+		b.mu.Lock()
+		delete(b.pendingUsage, requestKey)
+		b.usageReadInFlight = false
+		reply.Usage = b.usageReplyLocked(time.Now())
+		b.mu.Unlock()
+		reply.Error = "write-failed"
+		reply.Message = err.Error()
+		return reply
+	}
+
+	select {
+	case result := <-waiter:
+		b.mu.Lock()
+		reply.Usage = b.usageReplyLocked(time.Now())
+		b.mu.Unlock()
+		if errorText := errorMessage(result.errMsg); errorText != "" {
+			reply.Error = "backend-rejected"
+			reply.Message = errorText
+			return reply
+		}
+		reply.OK = true
+		return reply
+	case <-time.After(usageReadTimeout):
+		// The read may still land and update the cache; dropping the waiter only means this
+		// caller answers from the cache as it stands now.
+		b.mu.Lock()
+		delete(b.pendingUsage, requestKey)
+		b.usageReadInFlight = false
+		reply.Usage = b.usageReplyLocked(time.Now())
+		b.mu.Unlock()
+		reply.Error = "usage-timeout"
+		reply.Message = "the app-server did not answer the usage read in time"
+		return reply
+	}
+}
+
 func (b *bridge) status(command ipcCommand) ipcReply {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -1154,6 +2046,7 @@ func (b *bridge) status(command ipcCommand) ipcReply {
 		UptimeMs:         time.Since(b.startedAt).Milliseconds(),
 		DownstreamCli:    b.downstreamCLIPath,
 		DownstreamSrc:    b.downstreamSource,
+		Usage:            b.usageReplyLocked(time.Now()),
 	}
 }
 

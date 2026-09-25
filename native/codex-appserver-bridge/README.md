@@ -157,6 +157,7 @@ The same executable is also a client, so a keyboard helper needs no socket code:
 ~~~
 ocx-codex-appserver-bridge.exe --ocx-force-submit "text"
 ocx-codex-appserver-bridge.exe --ocx-force-submit "text" --ocx-thread-id <thread id>
+ocx-codex-appserver-bridge.exe --ocx-force-submit "text" --ocx-model-label "GPT-5.6 Sol Medium"
 ocx-codex-appserver-bridge.exe --ocx-status
 ocx-codex-appserver-bridge.exe --ocx-endpoint
 ~~~

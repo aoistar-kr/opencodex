@@ -167,6 +167,251 @@ internal static class Native
         return Down(VK_SHIFT) || Down(VK_CONTROL) || Down(VK_MENU) || Down(VK_LWIN) || Down(VK_RWIN);
     }
 
+    // ---------------------------------------------------------------------------------
+    // Post-submit clear: the only place the helper ever types. Keys go through SendInput
+    // with a private dwExtraInfo tag so the low-level hook can recognise and ignore its own
+    // injected events. The clipboard, ValuePattern.SetValue, page script and app files are
+    // never touched.
+    // ---------------------------------------------------------------------------------
+
+    public const int VK_A = 0x41;
+    public const int VK_DELETE = 0x2E;
+    public const int INPUT_KEYBOARD = 1;
+    public const uint KEYEVENTF_KEYUP = 0x0002;
+    public const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
+    public const int ClearKeyTag = 0x0C0FFEE1;
+    public static readonly IntPtr ClearTagPtr = new IntPtr(unchecked((int)ClearKeyTag));
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MOUSEINPUT
+    {
+        public int dx;
+        public int dy;
+        public uint mouseData;
+        public uint dwFlags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct KEYBDINPUT
+    {
+        public ushort wVk;
+        public ushort wScan;
+        public uint dwFlags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct HARDWAREINPUT
+    {
+        public uint uMsg;
+        public ushort wParamL;
+        public ushort wParamH;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    public struct InputUnion
+    {
+        [FieldOffset(0)] public MOUSEINPUT mi;
+        [FieldOffset(0)] public KEYBDINPUT ki;
+        [FieldOffset(0)] public HARDWAREINPUT hi;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct INPUT
+    {
+        public uint type;
+        public InputUnion u;
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
+    private static INPUT KeyStroke(ushort vk, bool up, bool extended)
+    {
+        INPUT input = new INPUT();
+        input.type = INPUT_KEYBOARD;
+        input.u.ki.wVk = vk;
+        input.u.ki.wScan = 0;
+        input.u.ki.dwFlags = (up ? KEYEVENTF_KEYUP : 0u) | (extended ? KEYEVENTF_EXTENDEDKEY : 0u);
+        input.u.ki.time = 0;
+        input.u.ki.dwExtraInfo = ClearTagPtr;
+        return input;
+    }
+
+    // Ctrl+A then Delete in one tagged SendInput batch. Only a fully accepted batch counts as
+    // success. When the OS takes only part of it the release events (Ctrl up, A up, Delete up) may
+    // never have arrived, so one tagged best-effort compensation batch releases those three keys
+    // and the caller stands down. Ctrl+A and Delete are never replayed: a half-applied chord must
+    // not be typed again into whatever the composer holds by then.
+    public static bool SendSelectAllAndDelete()
+    {
+        INPUT[] batch = new INPUT[6];
+        batch[0] = KeyStroke(VK_CONTROL, false, false);
+        batch[1] = KeyStroke(VK_A, false, false);
+        batch[2] = KeyStroke(VK_A, true, false);
+        batch[3] = KeyStroke(VK_CONTROL, true, false);
+        batch[4] = KeyStroke(VK_DELETE, false, true);
+        batch[5] = KeyStroke(VK_DELETE, true, true);
+        uint sent = SendInput((uint)batch.Length, batch, Marshal.SizeOf(typeof(INPUT)));
+        if (sent == (uint)batch.Length) return true;
+
+        Log.Warn("clear: SendInput accepted " + sent.ToString(CultureInfo.InvariantCulture) + " of "
+            + batch.Length.ToString(CultureInfo.InvariantCulture) + " events; releasing the tagged keys");
+        ReleaseTaggedKeys();
+        return false;
+    }
+
+    // Best-effort release of the keys the clear chord can leave held down. The result is ignored on
+    // purpose: it only lowers the chance of a stuck Ctrl, A or Delete after a refused batch, and
+    // the caller has already decided not to type again.
+    private static void ReleaseTaggedKeys()
+    {
+        INPUT[] release = new INPUT[3];
+        release[0] = KeyStroke(VK_CONTROL, true, false);
+        release[1] = KeyStroke(VK_A, true, false);
+        release[2] = KeyStroke(VK_DELETE, true, true);
+        try
+        {
+            SendInput((uint)release.Length, release, Marshal.SizeOf(typeof(INPUT)));
+        }
+        catch (Exception)
+        {
+        }
+    }
+
+}
+
+// Tolerant field extraction over the bridge's one-line JSON status reply. A missing, malformed
+// or reshaped document yields "not found" rather than a wrong number, because the structured
+// usage signal may only ever skip the pricey limit-text scan; it must never invent a block.
+internal static class JsonLite
+{
+    public static bool TryObject(string json, string key, out string body)
+    {
+        body = null;
+        if (string.IsNullOrEmpty(json)) return false;
+        int at = FindKey(json, key, 0);
+        if (at < 0) return false;
+        int open = json.IndexOf('{', at);
+        if (open < 0) return false;
+        int close = MatchContainer(json, open);
+        if (close < 0) return false;
+        body = json.Substring(open, close - open + 1);
+        return true;
+    }
+
+    public static bool TryString(string json, string key, out string value)
+    {
+        value = null;
+        if (string.IsNullOrEmpty(json)) return false;
+        int at = FindKey(json, key, 0);
+        if (at < 0) return false;
+        int i = at;
+        while (i < json.Length && char.IsWhiteSpace(json[i])) i++;
+        if (i >= json.Length || json[i] != '"') return false;
+        i++;
+        int start = i;
+        while (i < json.Length && json[i] != '"') i++;
+        if (i >= json.Length) return false;
+        value = json.Substring(start, i - start);
+        return true;
+    }
+
+    // Position just past the colon that follows the quoted key, or -1 when the key is absent.
+    private static int FindKey(string json, string key, int from)
+    {
+        string needle = "\"" + key + "\"";
+        int at = json.IndexOf(needle, from, StringComparison.Ordinal);
+        while (at >= 0)
+        {
+            int i = at + needle.Length;
+            while (i < json.Length && char.IsWhiteSpace(json[i])) i++;
+            if (i < json.Length && json[i] == ':') return i + 1;
+            at = json.IndexOf(needle, at + 1, StringComparison.Ordinal);
+        }
+        return -1;
+    }
+
+    // Index of the brace/bracket that closes the one at open, ignoring quoted strings.
+    private static int MatchContainer(string json, int open)
+    {
+        int depth = 0;
+        bool inString = false;
+        for (int i = open; i < json.Length; i++)
+        {
+            char c = json[i];
+            if (inString)
+            {
+                if (c == '\\') { i++; continue; }
+                if (c == '"') inString = false;
+                continue;
+            }
+            if (c == '"') { inString = true; continue; }
+            if (c == '{' || c == '[') depth++;
+            else if (c == '}' || c == ']')
+            {
+                depth--;
+                if (depth == 0) return i;
+            }
+        }
+        return -1;
+    }
+}
+
+internal sealed class UsageSnapshot
+{
+    public bool Known;
+    public bool LimitConfirmed;
+    public int Tick;
+}
+
+// Structured limit signal, read from the bridge's own --ocx-status reply. The account usage is
+// nested there under "usage", and the only value that can confirm a hard block is an exact
+// limitState of "confirmed" inside that object. A missing usage object, an absent or advisory or
+// unknown limitState, an older bridge or a custom provider all leave the signal unresolved and
+// the helper falls back to the existing UIA scan, so the structured signal can never widen what
+// the helper acts on.
+internal static class UsageSignal
+{
+    public const int TtlMs = 15000;
+
+    private static volatile UsageSnapshot latest;
+
+    public static void Feed(string statusJson)
+    {
+        UsageSnapshot snapshot = Parse(statusJson);
+        if (snapshot != null) latest = snapshot;
+    }
+
+    public static bool LimitConfirmed
+    {
+        get
+        {
+            UsageSnapshot s = latest;
+            if (s == null || !s.Known || !s.LimitConfirmed) return false;
+            if (unchecked(Environment.TickCount - s.Tick) > TtlMs) return false;
+            return true;
+        }
+    }
+
+    public static UsageSnapshot Parse(string statusJson)
+    {
+        UsageSnapshot snapshot = new UsageSnapshot();
+        snapshot.Tick = Environment.TickCount;
+
+        // The usage object is nested: {"usage":{"limitState":"confirmed"}}. Only the nested object
+        // counts, so a stray top-level limitState cannot confirm a block.
+        string usage;
+        string limitState = null;
+        bool present = JsonLite.TryObject(statusJson, "usage", out usage)
+            && JsonLite.TryString(usage, "limitState", out limitState);
+        snapshot.Known = present;
+        snapshot.LimitConfirmed = present && string.Equals(limitState, "confirmed", StringComparison.Ordinal);
+        return snapshot;
+    }
 }
 
 internal sealed class Options
@@ -176,7 +421,7 @@ internal sealed class Options
     public string[] Processes = new string[] { "ChatGPT.exe", "Codex Web GPT.exe" };
     public int IntervalMs = 250;
     public int ScanDepth = 2;
-    public int DebounceMs = 350;
+    public int DebounceMs = 120;
     public string[] SendLabels = new string[] { "send", "submit", "전송", "보내기" };
     // The exact copy the app renders for a hard block: the disabled Send button's own tooltip and
     // the model-limit banner headline. Broad phrases were dropped because ordinary conversation
@@ -332,12 +577,12 @@ internal sealed class BridgeClient
         get { return available; }
     }
 
-    public bool Enqueue(string text, Action<bool> onResult)
+    public bool Enqueue(string text, string modelLabel, Action<bool> onResult)
     {
         if (!available) return false;
         try
         {
-            queue.Add(new Job(text, onResult));
+            queue.Add(new Job(text, modelLabel, onResult));
             return true;
         }
         catch (Exception)
@@ -351,11 +596,13 @@ internal sealed class BridgeClient
     private sealed class Job
     {
         public readonly string Text;
+        public readonly string ModelLabel;
         public readonly Action<bool> OnResult;
 
-        public Job(string text, Action<bool> onResult)
+        public Job(string text, string modelLabel, Action<bool> onResult)
         {
             Text = text;
+            ModelLabel = modelLabel;
             OnResult = onResult;
         }
     }
@@ -382,7 +629,7 @@ internal sealed class BridgeClient
         }
     }
 
-    private void CheckStatus()
+     internal void CheckStatus()
     {
         if (!File.Exists(executable))
         {
@@ -394,6 +641,9 @@ internal sealed class BridgeClient
         string output;
         int exitCode;
         bool ran = Run(new string[] { "--ocx-status" }, StatusTimeoutMs, out output, out exitCode);
+        // The reply is fed to the usage signal even while the bridge is reachable; a shape without
+        // a nested usage.limitState simply leaves the signal unknown.
+        if (ran && exitCode == 0) UsageSignal.Feed(output);
         bool now = ran && exitCode == 0;
         if (now != available)
         {
@@ -411,7 +661,15 @@ internal sealed class BridgeClient
 
             string output;
             int exitCode;
-            bool ran = Run(new string[] { "--ocx-force-submit", job.Text }, SubmitTimeoutMs, out output, out exitCode);
+            List<string> arguments = new List<string>();
+            arguments.Add("--ocx-force-submit");
+            arguments.Add(job.Text);
+            if (!string.IsNullOrWhiteSpace(job.ModelLabel))
+            {
+                arguments.Add("--ocx-model-label");
+                arguments.Add(job.ModelLabel);
+            }
+            bool ran = Run(arguments.ToArray(), SubmitTimeoutMs, out output, out exitCode);
             bool accepted = ran && exitCode == 0;
             if (accepted)
             {
@@ -612,11 +870,16 @@ internal static class Program
     private static volatile bool submitInFlight;
     // Observation queue. The hook only enqueues; a worker thread does every UI Automation call,
     // so the low-level hook never blocks on a cross-process read.
-    private static readonly BlockingCollection<EnterObservation> observations = new BlockingCollection<EnterObservation>();
+    private static readonly BlockingCollection<EnterObservation> observations = new BlockingCollection<EnterObservation>(8);
     // The poller publishes the composer snapshot it just resolved and the hook copies it into the
     // queue, so the queued press carries the immutable pre-Enter state without touching UI Automation.
     private static volatile ComposerState cachedState;
     private static int cachedStateTick;
+    // Post-submit clear pipeline. A dedicated worker owns every SendInput call; the submit
+    // callback only enqueues, so the bridge-send thread never types.
+    private static readonly BlockingCollection<ClearJob> clears = new BlockingCollection<ClearJob>();
+    internal const int ClearPollIntervalMs = 100;
+    internal const int ClearVerifyTimeoutMs = 600;
 
     [MTAThread]
     private static int Main(string[] args)
@@ -673,6 +936,11 @@ internal static class Program
             observer.Name = "enter-observer";
             observer.Start();
 
+            Thread clearer = new Thread(ClearLoop);
+            clearer.IsBackground = true;
+            clearer.Name = "clear-worker";
+            clearer.Start();
+
             Log.Info("enter-force-submit started (bridge=" + Opt.BridgePath + ", interval=" + Opt.IntervalMs
                 + "ms, processes=" + string.Join(",", Opt.Processes) + ", dryRun=" + Opt.DryRun + ")");
 
@@ -714,7 +982,9 @@ internal static class Program
             if (down || up)
             {
                 Native.KBDLLHOOKSTRUCT key = (Native.KBDLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(Native.KBDLLHOOKSTRUCT));
-                if (key.vkCode == Native.VK_RETURN)
+                // Defensive: the clear worker tags its own injected keys, and any event carrying
+                // that tag is ignored outright even if it ever arrived as a Return.
+                if (key.vkCode == Native.VK_RETURN && key.dwExtraInfo != Native.ClearTagPtr)
                 {
                     if (down && (key.flags & Native.LLKHF_ALTDOWN) == 0 && !Native.ModifierDown()) ObserveEnter();
                 }
@@ -749,17 +1019,28 @@ internal static class Program
         public string DraftTrimmed = "";
         public bool DraftIsPlaceholder;
         public string SendButtonName = "";
+        public string ModelPickerLabel = "";
         public bool SendButtonFound;
         public bool SendEnabled;
         public bool HardLimit;
+        // True only when the bridge's structured usage signal is an authoritative confirmation.
+        // It is kept apart from HardLimit, which records the UI limit-indicator scan, because the
+        // two are read from different sources and only one of them can override an enabled send
+        // control.
+        public bool StructuredLimitConfirmed;
         public string TaskFingerprint = "";
 
         public bool Qualifies
         {
             get
             {
-                return SendButtonFound && !DraftIsPlaceholder && DraftTrimmed.Length > 0
-                    && !SendEnabled && HardLimit;
+                if (!SendButtonFound || DraftIsPlaceholder || DraftTrimmed.Length == 0) return false;
+                // A confirmed structured signal is the app-server itself reporting the block, so it
+                // overrides an enabled send control: the app can leave the button enabled while its
+                // own backend refuses the turn. Unknown or advisory signals override nothing and
+                // still need the disabled control plus a live limit indicator.
+                if (StructuredLimitConfirmed) return true;
+                return !SendEnabled && HardLimit;
             }
         }
 
@@ -768,12 +1049,15 @@ internal static class Program
             if (!SendButtonFound) return "send-button-not-found";
             if (DraftIsPlaceholder) return "composer-only-placeholder";
             if (DraftTrimmed.Length == 0) return "composer-empty";
+            if (StructuredLimitConfirmed) return "ok";
             if (SendEnabled) return "send-enabled";
             if (!HardLimit) return "no-limit-indicator";
             return "ok";
         }
 
-        // Compares the raw draft and the identity and state fields exactly.
+        // Compare stable composer identity and payload plus the controls that prove the app did
+        // not start a normal turn while the observation was settling. HardLimit is deliberately
+        // excluded because its UI-tree scan can flicker between otherwise identical snapshots.
         public bool SameAs(ComposerState other)
         {
             if (other == null) return false;
@@ -783,9 +1067,9 @@ internal static class Program
                 && string.Equals(Draft, other.Draft, StringComparison.Ordinal)
                 && DraftIsPlaceholder == other.DraftIsPlaceholder
                 && string.Equals(SendButtonName, other.SendButtonName, StringComparison.Ordinal)
-                && SendButtonFound == other.SendButtonFound
+                && string.Equals(ModelPickerLabel, other.ModelPickerLabel, StringComparison.Ordinal)
                 && SendEnabled == other.SendEnabled
-                && HardLimit == other.HardLimit
+                && StructuredLimitConfirmed == other.StructuredLimitConfirmed
                 && string.Equals(TaskFingerprint, other.TaskFingerprint, StringComparison.Ordinal);
         }
 
@@ -801,9 +1085,11 @@ internal static class Program
             copy.DraftTrimmed = DraftTrimmed;
             copy.DraftIsPlaceholder = DraftIsPlaceholder;
             copy.SendButtonName = SendButtonName;
+            copy.ModelPickerLabel = ModelPickerLabel;
             copy.SendButtonFound = SendButtonFound;
             copy.SendEnabled = SendEnabled;
             copy.HardLimit = HardLimit;
+            copy.StructuredLimitConfirmed = StructuredLimitConfirmed;
             copy.TaskFingerprint = TaskFingerprint;
             return copy;
         }
@@ -817,7 +1103,8 @@ internal static class Program
                 + " draft=\"" + Clip(Draft, 60) + "\" (raw " + Draft.Length.ToString(CultureInfo.InvariantCulture)
                 + " chars, placeholder=" + DraftIsPlaceholder + ")"
                 + " send=\"" + SendButtonName + "\" enabled=" + SendEnabled
-                + " hardLimit=" + HardLimit;
+                + " hardLimit=" + HardLimit
+                + " structuredLimit=" + StructuredLimitConfirmed;
         }
     }
 
@@ -829,19 +1116,19 @@ internal static class Program
         public int CachedTick;
     }
 
+    // Hook path: no UIA here. Queue every bare Enter whose foreground is a
+    // Chromium window, even when Current.Arm or the poller cached state is
+    // missing. Process/UIA validation stays on the worker, outside the hook.
     private static void ObserveEnter()
     {
-        Snapshot armed = Current;
-        if (armed == null || !armed.Arm) return;
-        ComposerState snapshot = cachedState;
-        if (snapshot == null) return;
         IntPtr foreground = Native.GetForegroundWindow();
-        if (foreground != armed.Foreground) return;
-
+        if (foreground == IntPtr.Zero) return;
+        if (!Native.IsChromiumWindow(foreground)) return;
+        ComposerState snapshot = cachedState;
         EnterObservation observation = new EnterObservation();
         observation.Foreground = foreground;
         observation.Tick = Environment.TickCount;
-        observation.Cached = snapshot.Copy();
+        observation.Cached = snapshot != null ? snapshot.Copy() : null;
         observation.CachedTick = cachedStateTick;
         if (!observations.TryAdd(observation))
         {
@@ -871,14 +1158,28 @@ internal static class Program
     {
         // Age of the cached pre-enter snapshot, measured before the debounce so the bound describes
         // how fresh the pre-Enter state was rather than how long the deliberate wait lasts.
+        // When the hook queued without a usable snapshot, resolve the current state here
+        // instead of dropping so a missing/stale cache still gets a before/after verdict.
+        ComposerState before = observation.Cached;
         int cachedAgeMs = unchecked(Environment.TickCount - observation.CachedTick);
-        if (observation.Cached != null) Log.Detail("pre-enter snapshot: " + observation.Cached.Describe());
+        if (before != null) Log.Detail("pre-enter snapshot: " + before.Describe());
+        if (before == null || cachedAgeMs > MaxCachedAgeMs)
+        {
+            string preDetail;
+            ComposerState fresh = ResolveComposerState(observation.Foreground, out preDetail);
+            if (fresh != null)
+            {
+                before = fresh;
+                cachedAgeMs = 0;
+                Log.Detail("pre-enter resolved in worker: " + before.Describe());
+            }
+        }
 
         Thread.Sleep(Opt.DebounceMs);
 
         string detail;
         ComposerState after = ResolveComposerState(observation.Foreground, out detail);
-        bool submit = DecideObservation(observation.Cached, after, cachedAgeMs, lastSubmittedText, out detail);
+        bool submit = DecideObservation(before, after, cachedAgeMs, lastSubmittedText, out detail);
         if (!submit)
         {
             Log.Info("no submission: " + detail);
@@ -899,16 +1200,21 @@ internal static class Program
             Log.Warn("no submission: the bridge is not available");
             return;
         }
-
-        // Immediate final fresh snapshot: it must still qualify and still match the post-press read.
-        ComposerState final = ResolveComposerState(observation.Foreground, out detail);
-        if (final == null || !final.Qualifies || !after.SameAs(final))
+        // An enabled control qualifies only because the structured block signal is still cached.
+        // Give a normally-starting turn one extra short render window before bypassing the UI;
+        // the ordinary disabled-button hard-limit path stays on the single fast 120ms check.
+        if (after.SendEnabled && after.StructuredLimitConfirmed)
         {
-            Log.Warn("no submission: the final recheck disagreed (" + detail + ")");
-            return;
+            Thread.Sleep(Opt.DebounceMs);
+            ComposerState confirm = ResolveComposerState(observation.Foreground, out detail);
+            if (confirm == null || !confirm.Qualifies || !after.SameAs(confirm))
+            {
+                Log.Info("no submission: enabled-send confirmation changed, leaving it to the app");
+                return;
+            }
+            after = confirm;
         }
-
-        Dispatch(final, detail);
+        Dispatch(after, detail);
     }
 
     // Decision core, shared by the observation loop and the --probe-enter sequence so the
@@ -962,14 +1268,16 @@ internal static class Program
     private static void Dispatch(ComposerState state, string detail)
     {
         string payload = state.Draft;
+        ComposerState submitted = state.Copy();
         submitInFlight = true;
-        if (!Bridge.Enqueue(payload, delegate(bool accepted)
+        if (!Bridge.Enqueue(payload, state.ModelPickerLabel, delegate(bool accepted)
         {
             submitInFlight = false;
             if (accepted)
             {
                 lastSubmittedText = payload;
                 Log.Info("force-submit accepted; draft recorded as submitted");
+                if (!Opt.DryRun) EnqueueClear(submitted);
             }
             else
             {
@@ -983,6 +1291,237 @@ internal static class Program
         }
 
         Log.Info("force-submit dispatched (" + detail + "): " + state.Describe());
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Post-submit clear
+    //
+    // The app does not necessarily clear its own composer when the bridge starts a turn on its
+    // behalf, so the same draft would sit there and could be submitted again. After an accepted
+    // non-dry submit the submitted composer identity and its exact draft are queued here and a
+    // dedicated worker brings the composer back to empty with real, tagged key input. Every guard
+    // can only decline: a wrong composer, changed draft or held modifier leaves the text alone.
+    // ---------------------------------------------------------------------------------------
+
+    internal sealed class ClearJob
+    {
+        public ComposerState Expected;
+    }
+
+    internal static class ClearGuard
+    {
+        // Passes only when the composer is still the exact one that was submitted, still holds the
+        // exact same raw draft, is still the foreground, and no modifier is held. Anything else
+        // declines so that clear never erases content it did not submit.
+        public static bool CanClear(ComposerState expected, ComposerState fresh, IntPtr foregroundNow, bool modifierDown, out string reason)
+        {
+            if (expected == null) { reason = "no submitted-state record"; return false; }
+            if (modifierDown) { reason = "a modifier is held"; return false; }
+            if (fresh == null) { reason = "the composer could not be resolved"; return false; }
+            if (fresh.Foreground != expected.Foreground || foregroundNow != expected.Foreground)
+            {
+                reason = "the window is no longer the foreground";
+                return false;
+            }
+            if (fresh.Pid != expected.Pid) { reason = "the process changed"; return false; }
+            // ComposerRuntimeId is the focused element's runtime id, so this also proves focus is
+            // still the same composer; nothing here refocuses.
+            if (!string.Equals(fresh.ComposerRuntimeId, expected.ComposerRuntimeId, StringComparison.Ordinal))
+            {
+                reason = "focus moved to another composer";
+                return false;
+            }
+            if (!string.Equals(fresh.TaskFingerprint, expected.TaskFingerprint, StringComparison.Ordinal))
+            {
+                reason = "the task changed";
+                return false;
+            }
+            if (!string.Equals(fresh.Draft, expected.Draft, StringComparison.Ordinal))
+            {
+                reason = "the draft changed";
+                return false;
+            }
+            reason = "same composer, same draft, no modifier";
+            return true;
+        }
+
+        // Full identity plus the byte-for-byte raw draft, used for the last-moment re-resolve right
+        // before the keystrokes. The disabled-send and limit fields are re-read there as well, but
+        // this match is deliberately limited to the composer's identity and its exact draft.
+        public static bool SameIdentity(ComposerState expected, ComposerState fresh, out string reason)
+        {
+            if (expected == null) { reason = "no submitted-state record"; return false; }
+            if (fresh == null) { reason = "the composer could not be resolved"; return false; }
+            if (fresh.Foreground != expected.Foreground || fresh.Pid != expected.Pid)
+            {
+                reason = "the window or process changed";
+                return false;
+            }
+            if (!string.Equals(fresh.ComposerRuntimeId, expected.ComposerRuntimeId, StringComparison.Ordinal))
+            {
+                reason = "focus moved to another composer";
+                return false;
+            }
+            if (!string.Equals(fresh.TaskFingerprint, expected.TaskFingerprint, StringComparison.Ordinal))
+            {
+                reason = "the task changed";
+                return false;
+            }
+            if (!string.Equals(fresh.Draft, expected.Draft, StringComparison.Ordinal))
+            {
+                reason = "the draft changed";
+                return false;
+            }
+            reason = "same composer identity and draft";
+            return true;
+        }
+
+        // Last-moment micro-recheck taken immediately before the keystrokes. The same composer must
+        // still own focus, the same window must still be foreground and no modifier may be held.
+        // It only reads focus - the helper never calls SetFocus - and any drift declines the clear,
+        // so content that moved is left alone.
+        public static bool StillFocused(ComposerState expected, out string reason)
+        {
+            if (expected == null) { reason = "no submitted-state record"; return false; }
+            if (Native.ModifierDown()) { reason = "a modifier is held"; return false; }
+            if (Native.GetForegroundWindow() != expected.Foreground)
+            {
+                reason = "the window is no longer the foreground";
+                return false;
+            }
+            AutomationElement focused;
+            try
+            {
+                focused = AutomationElement.FocusedElement;
+            }
+            catch (Exception)
+            {
+                reason = "the focused element is unavailable";
+                return false;
+            }
+            if (focused == null) { reason = "no focused element"; return false; }
+            if (!string.Equals(RuntimeId(focused), expected.ComposerRuntimeId, StringComparison.Ordinal))
+            {
+                reason = "focus moved to another composer";
+                return false;
+            }
+            reason = "focus, foreground and modifiers unchanged";
+            return true;
+        }
+    }
+
+    // Releases the duplicate guard only for the exact draft the caller submitted. A clear job runs
+    // asynchronously, so a later accepted submit may already have recorded a different draft;
+    // clearing unconditionally would drop that newer guard and let it be submitted twice. The
+    // compare and the store are one atomic step, so a concurrent record survives them.
+    internal static void ReleaseDuplicateGuard(string payload)
+    {
+        if (payload == null) return;
+        if (!string.Equals(lastSubmittedText, payload, StringComparison.Ordinal)) return;
+#pragma warning disable 420
+        Interlocked.CompareExchange(ref lastSubmittedText, null, payload);
+#pragma warning restore 420
+    }
+
+    private static void EnqueueClear(ComposerState submitted)
+    {
+        if (submitted == null) return;
+        ClearJob job = new ClearJob();
+        job.Expected = submitted.Copy();
+        try
+        {
+            if (!clears.TryAdd(job)) Log.Warn("clear queue is full; leaving the composer as it is");
+        }
+        catch (Exception)
+        {
+        }
+    }
+
+    private static void ClearLoop()
+    {
+        Native.CoInitializeEx(IntPtr.Zero, Native.COINIT_MULTITHREADED);
+        while (true)
+        {
+            ClearJob job;
+            if (!clears.TryTake(out job, 500)) continue;
+            try
+            {
+                ClearOnce(job);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("clear failed: " + ex.Message);
+            }
+        }
+    }
+
+    private static void ClearOnce(ClearJob job)
+    {
+        ComposerState expected = job.Expected;
+        if (expected == null) return;
+
+        string detail;
+        ComposerState fresh = ResolveComposerState(expected.Foreground, out detail);
+        if (IsCleared(fresh))
+        {
+            // The app already took the draft away; nothing to clear and the guard is released, but
+            // only for the draft this job owns.
+            ReleaseDuplicateGuard(expected.Draft);
+            Log.Info("clear: the composer was already empty, nothing to do");
+            return;
+        }
+
+        IntPtr foregroundNow = Native.GetForegroundWindow();
+        if (!ClearGuard.CanClear(expected, fresh, foregroundNow, Native.ModifierDown(), out detail))
+        {
+            Log.Warn("clear skipped: " + detail + " (draft stays recorded, so it is not resubmitted)");
+            return;
+        }
+
+        // Final recheck in the narrowest window before the keystrokes: resolve the composer once
+        // more, require the full identity and the exact raw draft to match, then confirm focus,
+        // foreground and modifiers. Nothing refocuses; any drift declines and the draft stays
+        // recorded rather than erasing content that moved.
+        ComposerState confirm = ResolveComposerState(expected.Foreground, out detail);
+        if (!ClearGuard.SameIdentity(expected, confirm, out detail))
+        {
+            Log.Warn("clear skipped at the last moment: " + detail);
+            return;
+        }
+        if (!ClearGuard.StillFocused(expected, out detail))
+        {
+            Log.Warn("clear skipped at the last moment: " + detail);
+            return;
+        }
+
+        Log.Info("clear: sending tagged Ctrl+A then Delete to the composer (" + detail + ")");
+        if (!Native.SendSelectAllAndDelete())
+        {
+            Log.Warn("clear: the keystroke batch was not fully delivered; leaving the draft in place");
+            return;
+        }
+
+        int waited = 0;
+        while (waited < ClearVerifyTimeoutMs)
+        {
+            Thread.Sleep(ClearPollIntervalMs);
+            waited += ClearPollIntervalMs;
+            fresh = ResolveComposerState(expected.Foreground, out detail);
+            if (IsCleared(fresh))
+            {
+                ReleaseDuplicateGuard(expected.Draft);
+                Log.Info("clear: the composer is empty; duplicate guard released");
+                return;
+            }
+        }
+        Log.Warn("clear: the composer still holds text after " + ClearVerifyTimeoutMs
+            + "ms; not retrying and keeping the duplicate guard");
+    }
+
+    private static bool IsCleared(ComposerState state)
+    {
+        if (state == null) return false;
+        return state.DraftIsPlaceholder || state.DraftTrimmed.Length == 0;
     }
 
     // Live resolution of the whole chain. Null means this is not our window or the focused
@@ -1092,9 +1631,14 @@ internal static class Program
         state.SendButtonFound = true;
         state.SendButtonName = SafeName(sendButton);
         state.SendEnabled = SafeEnabled(sendButton);
-        // The limit scan is the expensive part and an enabled send button already disqualifies the
-        // state, so it is skipped there.
-        state.HardLimit = state.SendEnabled ? false : LimitIndicatorLive(sendButton, focused);
+        AutomationElement modelPicker = FindModelPickerButton(focused, sendButton);
+        if (modelPicker != null) state.ModelPickerLabel = SafeName(modelPicker);
+        // Read once here so the snapshot carries it and the identity comparison covers it.
+        state.StructuredLimitConfirmed = UsageSignal.LimitConfirmed;
+        // The limit scan is the expensive part, so it is skipped when the send control is enabled:
+        // that state can only still qualify through the structured signal, which needs no scan. A
+        // confirmed structured usage signal lets the scan be skipped there too.
+        state.HardLimit = state.SendEnabled ? false : LimitIndicatorLive(sendButton, focused, state.StructuredLimitConfirmed);
         return state;
     }
 
@@ -1197,7 +1741,9 @@ internal static class Program
         if (state.DraftIsPlaceholder)
         {
             // An emptied composer releases the duplicate guard, so the same text can go again.
-            lastSubmittedText = null;
+            // The release is compare-and-clear against the value read here, so a guard recorded by
+            // a concurrent submit in the meantime is kept.
+            ReleaseDuplicateGuard(lastSubmittedText);
         }
 
         if (!state.Qualifies)
@@ -1415,6 +1961,51 @@ internal static class Program
         return null;
     }
 
+    // The current model is exposed by the composer-adjacent picker button. Keep
+    // the raw accessible name; the bridge resolves it against the live
+    // model/list catalog and rejects labels it cannot identify.
+    private static AutomationElement FindModelPickerButton(AutomationElement composer, AutomationElement sendButton)
+    {
+        AutomationElement node = SafeParent(composer);
+        for (int depth = 0; depth < 3 && node != null; depth++)
+        {
+            AutomationElementCollection buttons = FindDescendants(node, ControlType.Button);
+            if (buttons != null)
+            {
+                // Chromium returns descendants in visual/document order. In the composer footer
+                // the model picker is the last named non-action button before microphone/Send;
+                // retaining the last candidate avoids mistaking the left-side access-mode button
+                // for the selected model.
+                AutomationElement candidate = null;
+                foreach (AutomationElement button in buttons)
+                {
+                    if (button == null || button.Equals(sendButton)) continue;
+                    string name = SafeName(button).Trim();
+                    if (IsModelPickerCandidate(name)) candidate = button;
+                }
+                if (candidate != null) return candidate;
+            }
+            node = SafeParent(node);
+        }
+        return null;
+    }
+
+    private static bool IsModelPickerCandidate(string name)
+    {
+        if (name.Length == 0) return false;
+        if (IsSendLabel(name)) return false;
+        string lower = name.ToLowerInvariant();
+        string[] obviousControls = new string[]
+        { "attach", "upload", "voice", "microphone", "tools", "stop", "cancel",
+          "full access", "read-only", "default access", "attach files",
+          "첨부", "파일", "음성", "도구", "중지", "취소", "전체 액세스", "읽기 전용" };
+        foreach (string control in obviousControls)
+        {
+            if (lower == control || lower.Contains(control)) return false;
+        }
+        return true;
+    }
+
     internal static bool IsSendLabel(string name)
     {
         if (name == null) return false;
@@ -1434,8 +2025,14 @@ internal static class Program
     // Strongest signal first: in the hard-block state the app hangs its Messages limit reached
     // tooltip on the disabled Send button. Otherwise scan outward from the composer container,
     // capped at ScanDepth levels, and skip any level too large to be the composer.
-    private static bool LimitIndicatorLive(AutomationElement sendButton, AutomationElement composer)
+    private static bool LimitIndicatorLive(AutomationElement sendButton, AutomationElement composer, bool usageConfirmed)
     {
+        if (usageConfirmed)
+        {
+            Log.Detail("limit indicator (bridge usage.limitState confirmed)");
+            return true;
+        }
+
         bool found = false;
 
         // Strongest signal: in the hard-block state the app hangs its Messages limit
@@ -1542,6 +2139,22 @@ internal static class Probe
         Console.WriteLine("timing           : debounce=" + opt.DebounceMs + "ms, maxCachedAge="
             + Program.MaxCachedAgeMs + "ms");
 
+        // One diagnostic status read so the live capture below sees the same structured
+        // usage signal the helper loop would already hold. Fail-open: a missing bridge or a
+        // failed read only leaves the signal unknown, and the scripted tables below never
+        // depend on it.
+        if (opt.BridgePath != null && opt.BridgePath.Length > 0 && File.Exists(opt.BridgePath))
+         {
+             try
+             {
+                 new BridgeClient(opt.BridgePath, opt.StatusIntervalMs).CheckStatus();
+             }
+             catch (Exception ex)
+             {
+                 Log.Detail("probe status read skipped: " + ex.Message);
+             }
+         }
+
         string detail;
         Program.ComposerState live = Program.ResolveComposerState(foreground, out detail);
         Console.WriteLine();
@@ -1593,9 +2206,83 @@ internal static class Probe
         Step(13, "the after snapshot is unavailable", blocked, null, 40, null,
             "pass: the state could not be resolved after the press");
 
+        // The structured usage signal is the app-server's own confirmation. It has to qualify on
+        // its own, because the app can leave its send control enabled while the backend refuses the
+        // turn, and it has to stay covered by the identity comparison.
+        Program.ComposerState structured = Confirmed(State(window, "draft A", "보내기", true, false, "task-1"));
+        Step(14, "structured limit confirmed while the send control stays enabled", structured, structured, 40, null,
+            "submit: unchanged hard block, nothing else touched the composer");
+        Step(15, "the signal was only advisory/unknown after the press", structured,
+            State(window, "draft A", "보내기", true, false, "task-1"), 40, null,
+            "pass: the post-press snapshot does not qualify: send-enabled");
+        Step(16, "the structured signal dropped between the two snapshots", structured, blocked, 40, null,
+            "pass: the state changed after the press, leaving it to the app");
+
+        Console.WriteLine();
+        Console.WriteLine("structured limit signal (nested usage.limitState, exact \"confirmed\" only):");
+        UsageCheck(1, "{\"type\":\"result\",\"usage\":{\"limitState\":\"confirmed\"}}", true);
+        UsageCheck(2, "{\"type\":\"result\",\"usage\":{\"limitState\":\"advisory\"}}", false);
+        UsageCheck(3, "{\"type\":\"result\",\"usage\":{\"limitState\":\"unknown\"}}", false);
+        UsageCheck(4, "{\"type\":\"result\",\"ok\":true,\"connected\":true}", false);
+        UsageCheck(5, "{\"limitState\":\"confirmed\"}", false);
+        UsageCheck(6, "not json at all", false);
+
+        Console.WriteLine();
+        Console.WriteLine("qualification table (a confirmed signal overrides an enabled send control):");
+        QualifyStep(1, "confirmed + enabled send", Confirmed(State(window, "draft A", "보내기", true, false, "task-1")), true, "ok");
+        QualifyStep(2, "confirmed + disabled send", Confirmed(State(window, "draft A", "보내기", false, true, "task-1")), true, "ok");
+        QualifyStep(3, "unknown/advisory + enabled send", State(window, "draft A", "보내기", true, false, "task-1"), false, "send-enabled");
+        QualifyStep(4, "UI fallback: disabled send + limit indicator", State(window, "draft A", "보내기", false, true, "task-1"), true, "ok");
+        QualifyStep(5, "UI fallback: disabled send, no indicator", State(window, "draft A", "보내기", false, false, "task-1"), false, "no-limit-indicator");
+        QualifyStep(6, "confirmed but the composer is empty", Confirmed(State(window, "", "보내기", true, false, "task-1")), false, "composer-only-placeholder");
+
+        Console.WriteLine();
+        Console.WriteLine("clear guard table (expected submitted state vs fresh state):");
+        Program.ComposerState submitted = State(window, "draft A", "보내기", false, true, "task-1");
+        ClearStep(1, "same composer, same draft, no modifier", submitted, submitted, window, false, true,
+            "same composer, same draft, no modifier");
+        ClearStep(2, "focus moved to another composer", submitted, DifferentComposer(window, "draft A"), window, false, false,
+            "focus moved to another composer");
+        ClearStep(3, "the draft changed", submitted, State(window, "draft AB", "보내기", false, true, "task-1"), window, false, false,
+            "the draft changed");
+        ClearStep(4, "a modifier is held", submitted, submitted, window, true, false,
+            "a modifier is held");
+        ClearStep(5, "the task changed", submitted, State(window, "draft A", "보내기", false, true, "task-2"), window, false, false,
+            "the task changed");
+
         Console.WriteLine();
         Console.WriteLine("=== probe end ===");
         return 0;
+    }
+
+    private static void UsageCheck(int index, string json, bool expectConfirmed)
+    {
+        UsageSnapshot snapshot = UsageSignal.Parse(json);
+        bool confirmed = snapshot.Known && snapshot.LimitConfirmed;
+        string verdict = confirmed == expectConfirmed ? "as-expected" : "UNEXPECTED";
+        Console.WriteLine("  " + index.ToString(CultureInfo.InvariantCulture)
+            + " known=" + snapshot.Known + " confirmed=" + confirmed
+            + "  [" + verdict + "]");
+    }
+
+    private static void ClearStep(int index, string label, Program.ComposerState expected, Program.ComposerState fresh, IntPtr foregroundNow, bool modifierDown, bool expectClear, string expectReason)
+    {
+        string reason;
+        bool clear = Program.ClearGuard.CanClear(expected, fresh, foregroundNow, modifierDown, out reason);
+        string verdict = (clear == expectClear && string.Equals(reason, expectReason, StringComparison.Ordinal))
+            ? "as-expected" : "UNEXPECTED";
+        Console.WriteLine("  " + index.ToString(CultureInfo.InvariantCulture) + " " + label);
+        Console.WriteLine("       -> " + (clear ? "clear: " : "skip: ") + reason + "  [" + verdict + "]");
+    }
+
+    private static void QualifyStep(int index, string label, Program.ComposerState state, bool expectQualifies, string expectReason)
+    {
+        bool qualifies = state.Qualifies;
+        string reason = state.QualifyReason();
+        string verdict = (qualifies == expectQualifies && string.Equals(reason, expectReason, StringComparison.Ordinal))
+            ? "as-expected" : "UNEXPECTED";
+        Console.WriteLine("  " + index.ToString(CultureInfo.InvariantCulture) + " " + label);
+        Console.WriteLine("       -> qualifies=" + qualifies + " (" + reason + ")  [" + verdict + "]");
     }
 
     private static Program.ComposerState State(IntPtr window, string draft, string sendName, bool sendEnabled, bool hardLimit, string task)
@@ -1614,6 +2301,13 @@ internal static class Probe
         state.SendEnabled = sendEnabled;
         state.HardLimit = hardLimit;
         state.TaskFingerprint = task;
+        return state;
+    }
+
+    // Marks a scripted state as carrying the bridge's confirmed structured usage signal.
+    private static Program.ComposerState Confirmed(Program.ComposerState state)
+    {
+        state.StructuredLimitConfirmed = true;
         return state;
     }
 
@@ -1735,7 +2429,7 @@ internal static class Probe
             Console.WriteLine("  hard block     : cannot be judged (" + detail + ")");
             return;
         }
-        bool blocked = state.SendButtonFound && !state.SendEnabled && state.HardLimit;
+        bool blocked = state.Qualifies;
         Console.WriteLine("  hard block     : " + (blocked ? "ACTIVE" : "NOT ACTIVE")
             + " (" + state.QualifyReason() + ", send=\"" + state.SendButtonName + "\")");
     }

@@ -111,6 +111,88 @@ func activeThread(b *bridge) string {
 	return b.activeThreadID
 }
 
+func TestModelListCacheResolvesDisplayNameAndEffort(t *testing.T) {
+	b, _ := newTestBridge(t)
+	b.observeWire(wireLine(t, map[string]any{
+		"id": "models-1", "method": "model/list", "params": map[string]any{},
+	}), true)
+	b.observeWire(wireLine(t, map[string]any{
+		"id": "models-1", "result": map[string]any{"data": []any{
+			map[string]any{"id": "native-short", "model": "provider/short-wire", "displayName": "Short", "supportedReasoningEfforts": []string{"low", "high"}, "defaultReasoningEffort": "low"},
+			map[string]any{"id": "native-long", "model": "provider/long-wire", "displayName": "Short Pro", "supportedReasoningEfforts": []any{map[string]any{"reasoningEffort": "medium"}, map[string]any{"reasoningEffort": "high"}}},
+		}},
+	}), false)
+	resolved, err := b.resolveModelLabel("Short Pro (high)")
+	if err != nil {
+		t.Fatalf("resolve model label: %v", err)
+	}
+	if resolved.model != "provider/long-wire" || resolved.effort != "high" {
+		t.Fatalf("resolved = %#v, want long wire model + high", resolved)
+	}
+	custom, err := b.resolveModelLabel("opencode-go/custom-model")
+	if err != nil || custom.model != "opencode-go/custom-model" {
+		t.Fatalf("custom slug was rewritten/rejected: %#v, %v", custom, err)
+	}
+	customWithEffort, err := b.resolveModelLabel("opencode-go/custom-model (high)")
+	if err != nil || customWithEffort.model != "opencode-go/custom-model" || customWithEffort.effort != "high" {
+		t.Fatalf("custom slug effort suffix was not separated: %#v, %v", customWithEffort, err)
+	}
+}
+
+func TestForceSubmitUnknownModelLabelDoesNotUseStaleTemplate(t *testing.T) {
+	b, backend := newTestBridge(t)
+	b.activeThreadID = liveThreadID
+	b.knownThreads[liveThreadID] = true
+	b.turnTemplates[liveThreadID] = map[string]any{"model": "stale-model", "effort": "low"}
+	reply := b.forceSubmit(ipcCommand{Text: "hello", ModelLabel: "missing picker label"})
+	if reply.OK || reply.Error != "unknown-model-label" {
+		t.Fatalf("reply = %#v, want unknown-model-label", reply)
+	}
+	if _, err := readLineWithin(backend, 100*time.Millisecond); err == nil {
+		t.Fatal("unknown model label wrote a stale turn/start")
+	}
+}
+
+func TestForceSubmitModelLabelOverridesTemplateWithWireModel(t *testing.T) {
+	b, backend := newTestBridge(t)
+	b.activeThreadID = liveThreadID
+	b.knownThreads[liveThreadID] = true
+	b.turnTemplates[liveThreadID] = map[string]any{"model": "stale-model", "effort": "low"}
+	b.modelCatalog = map[string]modelCatalogEntry{
+		"Friendly": {ID: "entry-id", Model: "provider/actual-model", DisplayName: "Friendly", SupportedReasoningEfforts: []string{"high"}},
+	}
+	injected, reply := injectAndAnswer(t, b, backend, ipcCommand{Text: "hello", ModelLabel: "Friendly (high)"}, map[string]any{"turn": map[string]any{"id": "turn-model"}})
+	if !reply.OK {
+		t.Fatalf("force-submit failed: %#v", reply)
+	}
+	params, ok := injected["params"].(map[string]any)
+	if !ok {
+		t.Fatalf("injected params = %#v", injected["params"])
+	}
+	if params["model"] != "provider/actual-model" || params["effort"] != "high" {
+		t.Fatalf("params model/effort = %#v/%#v, want provider/actual-model/high", params["model"], params["effort"])
+	}
+}
+
+func TestModelOverrideWithoutDefaultEffortDropsStaleTemplateEffort(t *testing.T) {
+	b, _ := newTestBridge(t)
+	b.activeThreadID = liveThreadID
+	b.turnTemplates[liveThreadID] = map[string]any{"model": "stale-model", "effort": "low"}
+	b.modelCatalog = map[string]modelCatalogEntry{
+		"Friendly": {ID: "entry-id", Model: "provider/actual-model", DisplayName: "Friendly"},
+	}
+	params, err := b.buildTurnStartParams(liveThreadID, "hello", "Friendly")
+	if err != nil {
+		t.Fatalf("build params: %v", err)
+	}
+	if params["model"] != "provider/actual-model" {
+		t.Fatalf("model = %#v, want provider/actual-model", params["model"])
+	}
+	if effort, present := params["effort"]; present {
+		t.Fatalf("stale effort survived model override: %#v", effort)
+	}
+}
+
 type readOutcome struct {
 	line string
 	err  error
@@ -569,5 +651,154 @@ func TestRejectedTurnEvictsTheDeadThreadAndBlocksFurtherSubmits(t *testing.T) {
 	// Neither refusal may have written a turn/start to the backend.
 	if line, err := readLineWithin(backend, 300*time.Millisecond); err == nil {
 		t.Fatalf("a locally-refused submit must not reach the backend; wrote %q", line)
+	}
+}
+
+// TestUsageReadWakesItsWaiterWithTheFreshAnswer covers the bridge's own
+// account/rateLimits/read: the answer updates the cache before the waiter
+// replies, and an app-issued read of the same method must not clear the
+// bridge-owned in-flight flag.
+func TestUsageReadWakesItsWaiterWithTheFreshAnswer(t *testing.T) {
+	b, backend := newTestBridge(t)
+
+	replies := make(chan ipcReply, 1)
+	go func() { replies <- b.usage(ipcCommand{Type: "usage"}) }()
+	line, err := readLineWithin(backend, 5*time.Second)
+	if err != nil {
+		t.Fatalf("usage() wrote nothing to the backend: %v", err)
+	}
+	var injected map[string]any
+	if err := json.Unmarshal([]byte(line), &injected); err != nil {
+		t.Fatalf("the usage read is not JSON: %v (%q)", err, line)
+	}
+	requestID, _ := injected["id"].(string)
+	if requestID == "" {
+		t.Fatalf("the usage read has no id: %q", line)
+	}
+
+	// The app polls the same method with its own id while that read is in flight.
+	appRequestID(t, b, "app:usage:1", usageRateLimitMethod, "")
+	backendResult(t, b, "app:usage:1", map[string]any{
+		"ordinaryUsageAllowed": true,
+		"rateLimits":           map[string]any{"limitId": "codex", "primary": map[string]any{"usedPercent": 42.0}},
+	})
+	b.mu.Lock()
+	inFlight := b.usageReadInFlight
+	b.mu.Unlock()
+	if !inFlight {
+		t.Fatal("an app-issued usage read cleared the bridge-owned read in flight")
+	}
+
+	backendResult(t, b, requestID, map[string]any{
+		"ordinaryUsageAllowed": false,
+		"rateLimits":           map[string]any{"limitId": "codex", "primary": map[string]any{"usedPercent": 100.0}},
+	})
+
+	select {
+	case reply := <-replies:
+		if !reply.OK || reply.Usage == nil || reply.Usage.LimitState != "confirmed" {
+			t.Fatalf("the answered read must report its fresh confirmation; reply=%+v", reply)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("usage() did not answer after the backend answered")
+	}
+}
+
+// TestOrdinaryUsageAllowedConfirmsAndRecoversForTheSameAccount covers the
+// response-level ordinaryUsageAllowed flag: false confirms a hard block, true
+// retracts it, and a read for another account must not retract it.
+func TestOrdinaryUsageAllowedConfirmsAndRecoversForTheSameAccount(t *testing.T) {
+	b, _ := newTestBridge(t)
+	read := func(result string) { b.applyUsageRead(json.RawMessage(result)) }
+	limitState := func() string { return b.status(ipcCommand{}).Usage.LimitState }
+
+	read(`{"accountId":"acct-a","ordinaryUsageAllowed":false,"rateLimits":{"limitId":"codex","primary":{"usedPercent":100}}}`)
+	if got := limitState(); got != "confirmed" {
+		t.Fatalf("ordinaryUsageAllowed false must confirm a block; limitState=%q", got)
+	}
+	read(`{"accountId":"acct-b","ordinaryUsageAllowed":true,"rateLimits":{"limitId":"codex","primary":{"usedPercent":0}}}`)
+	if got := limitState(); got != "confirmed" {
+		t.Fatalf("a read for another account must not retract the block; limitState=%q", got)
+	}
+	read(`{"accountId":"acct-a","ordinaryUsageAllowed":true,"rateLimits":{"limitId":"codex","primary":{"usedPercent":0}}}`)
+	if got := limitState(); got == "confirmed" {
+		t.Fatalf("ordinaryUsageAllowed true for the blocked account must recover it; limitState=%q", got)
+	}
+}
+
+// TestSparseUsageUpdateKeepsUnmentionedFields covers account/rateLimits/updated:
+// it merges per key, so a window it did not mention and the ordinaryUsageAllowed
+// answer from the last full read both survive.
+func TestSparseUsageUpdateKeepsUnmentionedFields(t *testing.T) {
+	b, _ := newTestBridge(t)
+	b.applyUsageRead(json.RawMessage(`{"accountId":"acct-a","ordinaryUsageAllowed":false,"rateLimits":{"limitId":"codex","primary":{"usedPercent":100,"windowDurationMins":300},"secondary":{"usedPercent":20,"windowDurationMins":10080}}}`))
+	b.applyUsageUpdate(json.RawMessage(`{"rateLimits":{"primary":{"usedPercent":55}}}`))
+
+	usage := b.status(ipcCommand{}).Usage
+	if usage.LimitState != "confirmed" {
+		t.Fatalf("a sparse update carries no ordinaryUsageAllowed and must not retract the block; limitState=%q", usage.LimitState)
+	}
+	if usage.Primary == nil || usage.Primary.UsedPercent == nil || *usage.Primary.UsedPercent != 55 {
+		t.Fatalf("the sparse update must replace the window it carried; primary=%+v", usage.Primary)
+	}
+	if usage.Primary.WindowDurationMins == nil || *usage.Primary.WindowDurationMins != 300 {
+		t.Fatalf("the sparse update must merge inside the window it carried; primary=%+v", usage.Primary)
+	}
+	if usage.Secondary == nil || usage.Secondary.UsedPercent == nil || *usage.Secondary.UsedPercent != 20 {
+		t.Fatalf("the sparse update must keep the window it did not mention; secondary=%+v", usage.Secondary)
+	}
+}
+
+// TestTurnStartUsageErrorBlocksOnlyTheForegroundRoot covers a turn/start the
+// app-server rejected with codexErrorInfo usageLimitExceeded: the foreground
+// root confirms a block, a subagent turn does not, and the rejection mutates no
+// thread selection.
+func TestTurnStartUsageErrorBlocksOnlyTheForegroundRoot(t *testing.T) {
+	b, _ := newTestBridge(t)
+	threadStarted(t, b, map[string]any{"id": liveThreadID, "source": "vscode"})
+	appRequest(t, b, "app:turn:root", "turn/start", liveThreadID)
+	backendResult(t, b, "app:turn:root", map[string]any{"turn": map[string]any{"id": "turn-root"}})
+	threadStarted(t, b, map[string]any{
+		"id": subagentThreadID,
+		"source": map[string]any{
+			"subAgent": map[string]any{
+				"thread_spawn": map[string]any{"parent_thread_id": liveThreadID},
+			},
+		},
+	})
+
+	usageLimitError := func(requestID string) {
+		t.Helper()
+		b.observeWire(wireLine(t, map[string]any{
+			"jsonrpc": "2.0",
+			"id":      requestID,
+			"error": map[string]any{
+				"code":    -32000,
+				"message": "usage limit exceeded",
+				"data":    map[string]any{"codexErrorInfo": "usageLimitExceeded"},
+			},
+		}), false)
+	}
+
+	appRequest(t, b, "app:turn:subagent", "turn/start", subagentThreadID)
+	usageLimitError("app:turn:subagent")
+	if got := b.status(ipcCommand{}).Usage.LimitState; got == "confirmed" {
+		t.Fatalf("a subagent turn error must not confirm a block; limitState=%q", got)
+	}
+
+	appRequest(t, b, "app:turn:root:2", "turn/start", liveThreadID)
+	usageLimitError("app:turn:root:2")
+	reply := b.status(ipcCommand{})
+	if reply.Usage.LimitState != "confirmed" || reply.Usage.Source != "turn/start" {
+		t.Fatalf("the foreground root turn error must confirm a block; usage=%+v", reply.Usage)
+	}
+	if reply.AcceptedThreadID != liveThreadID {
+		t.Fatalf("the usage rejection changed the accepted root to %q", reply.AcceptedThreadID)
+	}
+	b.mu.Lock()
+	stillKnown := b.knownThreads[liveThreadID]
+	b.mu.Unlock()
+	if !stillKnown {
+		t.Fatal("a usage rejection must not evict the thread")
 	}
 }
