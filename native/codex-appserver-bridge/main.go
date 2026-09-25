@@ -1039,6 +1039,9 @@ func turnTemplate(params json.RawMessage) map[string]any {
 	delete(template, "input")
 	delete(template, "expectedTurnId")
 	delete(template, "threadId")
+	// A tool-result continuation is mutually exclusive with a new non-empty input.
+	// Force submit always creates a fresh user-text turn, so never inherit it.
+	delete(template, "toolOutput")
 	// The app keys its optimistic user message on this id. Reusing the id of a
 	// message the app already sent would make it attribute this turn's user item
 	// to that older message.

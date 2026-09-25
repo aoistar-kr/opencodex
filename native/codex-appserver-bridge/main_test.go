@@ -111,6 +111,30 @@ func activeThread(b *bridge) string {
 	return b.activeThreadID
 }
 
+func TestTurnTemplateDropsFieldsExclusiveToFreshUserInput(t *testing.T) {
+	raw, err := json.Marshal(map[string]any{
+		"threadId":            liveThreadID,
+		"input":               []any{map[string]any{"type": "text", "text": "old"}},
+		"toolOutput":          map[string]any{"callId": "call-1", "output": "old tool result"},
+		"expectedTurnId":      "turn-old",
+		"clientUserMessageId": "message-old",
+		"model":               "keep-model",
+		"effort":              "high",
+	})
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	template := turnTemplate(raw)
+	for _, key := range []string{"threadId", "input", "toolOutput", "expectedTurnId", "clientUserMessageId"} {
+		if _, present := template[key]; present {
+			t.Fatalf("exclusive field %q survived: %#v", key, template[key])
+		}
+	}
+	if template["model"] != "keep-model" || template["effort"] != "high" {
+		t.Fatalf("reusable fields were lost: %#v", template)
+	}
+}
+
 func TestModelListCacheResolvesDisplayNameAndEffort(t *testing.T) {
 	b, _ := newTestBridge(t)
 	b.observeWire(wireLine(t, map[string]any{
