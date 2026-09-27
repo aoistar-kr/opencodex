@@ -10,7 +10,7 @@ param(
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $deploymentRoot = Join-Path $env:USERPROFILE ".opencodex\deployments"
-$statusPath = Join-Path $deploymentRoot "local-2.64.0-latest.json"
+$statusPath = Join-Path $deploymentRoot "local-latest.json"
 
 function Write-DeploymentState {
   param(
@@ -50,17 +50,26 @@ if (-not $Worker) {
     "-RunId", $RunId,
     "-DelaySeconds", [string]$DelaySeconds
   )
-  $process = Start-Process -FilePath $shell.Source -ArgumentList $argumentList -WindowStyle Hidden -PassThru
-  $logPath = Join-Path $deploymentRoot "local-2.64.0-$RunId.log"
-  Write-DeploymentState -Stage "queued" -State "running" -Message "Detached deployment worker started." -LogPath $logPath -WorkerPid $process.Id
-  Write-Host "Detached deployment worker started (PID $($process.Id))."
+  $quotedArguments = $argumentList | ForEach-Object {
+    if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ }
+  }
+  $commandLine = '"' + $shell.Source + '" -WindowStyle Hidden ' + ($quotedArguments -join ' ')
+  # WMI owns the detached worker, so restarting the Codex process tree cannot
+  # terminate the deployment before it records the final state.
+  $created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $commandLine }
+  if ($created.ReturnValue -ne 0) {
+    throw "Detached deployment worker could not be created (Win32_Process.Create returned $($created.ReturnValue))."
+  }
+  $logPath = Join-Path $deploymentRoot "local-$RunId.log"
+  Write-DeploymentState -Stage "queued" -State "running" -Message "Detached deployment worker started." -LogPath $logPath -WorkerPid $created.ProcessId
+  Write-Host "Detached deployment worker started (PID $($created.ProcessId))."
   Write-Host "Status: $statusPath"
   Write-Host "Log:    $logPath"
   exit 0
 }
 
 if ([string]::IsNullOrWhiteSpace($RunId)) { throw "Worker mode requires -RunId." }
-$logPath = Join-Path $deploymentRoot "local-2.64.0-$RunId.log"
+$logPath = Join-Path $deploymentRoot "local-$RunId.log"
 New-Item -ItemType Directory -Path $deploymentRoot -Force | Out-Null
 Start-Transcript -LiteralPath $logPath -Append | Out-Null
 
@@ -84,7 +93,7 @@ try {
     throw "Expected branch 'custom', found '$branch'."
   }
   $version = (Get-Content -Raw -LiteralPath (Join-Path $repoRoot "package.json") | ConvertFrom-Json).version
-  if ($version -ne "2.64.0") { throw "Expected package version 2.64.0, found $version." }
+  if ([string]::IsNullOrWhiteSpace($version)) { throw "package.json does not contain a version." }
 
   Invoke-NativeStep -Stage "commit" -Message "Staging and committing the complete working tree." -Action {
     & git add -A
@@ -112,7 +121,7 @@ try {
   if (-not $npm) { $npm = Get-Command npm -ErrorAction Stop }
   $artifactRoot = Join-Path $repoRoot ".tmp\local-deploy-$RunId"
   New-Item -ItemType Directory -Path $artifactRoot -Force | Out-Null
-  Write-DeploymentState -Stage "pack" -State "running" -Message "Packing version 2.64.0." -LogPath $logPath -WorkerPid $PID
+  Write-DeploymentState -Stage "pack" -State "running" -Message "Packing version $version." -LogPath $logPath -WorkerPid $PID
   $packJson = & $npm.Source pack --json --ignore-scripts --pack-destination $artifactRoot
   if ($LASTEXITCODE -ne 0) { throw "npm pack failed with exit code $LASTEXITCODE." }
   $packResult = $packJson | ConvertFrom-Json
@@ -120,8 +129,9 @@ try {
   if ([string]::IsNullOrWhiteSpace($packageName)) { throw "npm pack did not return a package filename." }
   $packagePath = Join-Path $artifactRoot $packageName
 
-  Invoke-NativeStep -Stage "install" -Message "Installing the packed 2.64.0 build globally." -Action {
-    & $npm.Source install -g --force --allow-scripts=bun $packagePath
+  $deployScript = Join-Path $repoRoot "scripts\cicd\deploy-local-windows.ps1"
+  Invoke-NativeStep -Stage "install" -Message "Installing the packed $version build globally with rollback backup." -Action {
+    & $deployScript -PackagePath $packagePath
   }
 
   $ocxPath = Join-Path $env:APPDATA "npm\ocx.cmd"
@@ -143,7 +153,16 @@ try {
   if (-not $healthy) { throw "OpenCodex did not become healthy on port 10100." }
 
   $installedVersion = (& $ocxPath --version | Out-String).Trim()
-  Write-DeploymentState -Stage "complete" -State "succeeded" -Message "Committed, pushed, built, installed, and restarted successfully. $installedVersion" -LogPath $logPath -WorkerPid $PID
+  if ($installedVersion -notmatch [regex]::Escape($version)) {
+    throw "Installed OpenCodex version does not match package version ${version}: $installedVersion"
+  }
+
+  $restartCodexScript = Join-Path $repoRoot "scripts\restart-codex-desktop-app.ps1"
+  Invoke-NativeStep -Stage "restart-codex" -Message "Restarting the Codex desktop app." -Action {
+    & $restartCodexScript -Force
+  }
+
+  Write-DeploymentState -Stage "complete" -State "succeeded" -Message "Committed, pushed, built, installed OpenCodex $version, restarted its service, verified health, and restarted Codex. $installedVersion" -LogPath $logPath -WorkerPid $PID
 } catch {
   Write-DeploymentState -Stage "failed" -State "failed" -Message $_.Exception.Message -LogPath $logPath -WorkerPid $PID
   Write-Error $_
