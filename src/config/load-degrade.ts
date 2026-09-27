@@ -1,5 +1,6 @@
 import { chmodSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { compactionRecoveryConfigError } from "./schema/compaction-recovery";
 import {
   modelPinnedEffortsConfigError,
   pinnedReasoningEffortConfigError,
@@ -16,6 +17,7 @@ import { isValidProviderName } from "./provider-name";
 import { MODEL_ALIAS_PATTERN } from "../providers/default-aliases";
 import { MODEL_DISCOVERY_MAX_MODELS } from "../providers/model-discovery-limits";
 import { getProviderRegistryEntry, providerMatchesRegistryTransport, registryModelServiceTierCapabilityApplies } from "../providers/registry";
+import { providerFastSwitchOff } from "../providers/fast-opt-in";
 import { isCodexReasoningEffort } from "../reasoning-effort";
 import { refreshConfigDerivedRegistries } from "./derived-registries";
 import { type OcxClaudeCodeConfig, type OcxConfig } from "../types";
@@ -117,6 +119,7 @@ export function warnDegradedCompactionRouting(rawParsed: unknown, validated: Ocx
  * the ratchet only ever moves down: a per-block call there costs a line the file does not have.
  */
 export function warnDegradedTopLevelOptIns(rawParsed: unknown, validated: OcxConfig): void {
+  if (compactionRecoveryConfigError(rawParsed)) console.warn("⚠️  invalid compactionRecovery disabled; the original compaction failure is preserved");
   warnDegradedStreamMode(rawParsed, validated);
   warnDegradedCompactionRouting(rawParsed, validated);
 }
@@ -543,6 +546,10 @@ export function normalizePersistedClaudeCode(claudeCode: unknown): OcxConfig["cl
     return claudeCode as OcxConfig["claudeCode"];
   }
   const normalized = { ...claudeCode } as Record<string, unknown>;
+  // A malformed hand edit must not arm CLI interception or discard the whole config.
+  if (Object.hasOwn(normalized, "cliFirstParty") && typeof normalized.cliFirstParty !== "boolean") {
+    delete normalized.cliFirstParty;
+  }
   if (Object.hasOwn(normalized, "subagentEffort") && !isClaudeSubagentEffort(normalized.subagentEffort)) {
     delete normalized.subagentEffort;
   }
@@ -835,6 +842,7 @@ export function inheritedFastWireConflictProviderNames(
   const conflicts: string[] = [];
   for (const [name, provider] of Object.entries(config.providers)) {
     if (provider.fastWire !== null || provider.supportsServiceTier === false) continue;
+    if (providerFastSwitchOff(name, provider)) continue;
     const registry = providerMatchesRegistryTransport(name, provider)
       ? getProviderRegistryEntry(name)
       : undefined;

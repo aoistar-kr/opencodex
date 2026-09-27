@@ -11,7 +11,7 @@ import type { CodexWsSession } from "./codex-ws-session";
 import { UPGRADE_DEADLINE_MS, CODEX_WS_LIVENESS_PING_INTERVAL_MS, CODEX_WS_RESPONSE_PRELUDE_TIMEOUT_MS, MAX_CODEX_WS_FRAME_BYTES,
   MAX_CODEX_WS_QUEUE_BYTES, markCodexWsResponse, normalizeResponsesWsRelayEvent, closedBeforeTerminalMessage,
   codexWsCreateFrameExceedsLimit, codexWsFailureDetail, codexWsPreResponseFailure, markCodexWsStage, codexWsOcxVersion,
-  type CodexWsFailureStage, type CodexWsStageRecord } from "./codex-ws-wire";
+  markCodexWsSocketDeath, type CodexWsFailureStage, type CodexWsStageRecord } from "./codex-ws-wire";
 
 interface ExchangeOptions {
   nativeControl?: NativeResponseControl;
@@ -114,6 +114,7 @@ export function codexWsExchange(options: ExchangeOptions): Promise<Response> {
     let pongs = 0;
     let sentAt: number | null = null;
     let firstFrameAt: number | null = null;
+    let firstResponseAt: number | null = null;
     // Numeric close code for the durable stage record; the reason string stays
     // out of it on purpose (#4191 content-free contract).
     let closeCode: number | null = null;
@@ -170,6 +171,7 @@ export function codexWsExchange(options: ExchangeOptions): Promise<Response> {
       controlFrames,
       relayedEvents,
       firstFrameMs: sentAt !== null && firstFrameAt !== null ? Math.max(0, firstFrameAt - sentAt) : null,
+      firstResponseMs: sentAt !== null && firstResponseAt !== null ? Math.max(0, firstResponseAt - sentAt) : null,
       elapsedMs: sentAt !== null ? Math.max(0, Date.now() - sentAt) : null,
       pings,
       pongs,
@@ -188,6 +190,7 @@ export function codexWsExchange(options: ExchangeOptions): Promise<Response> {
       controlFrames,
       relayedEvents,
       firstFrameMs: sentAt !== null && firstFrameAt !== null ? Math.max(0, firstFrameAt - sentAt) : null,
+      firstResponseMs: sentAt !== null && firstResponseAt !== null ? Math.max(0, firstResponseAt - sentAt) : null,
       elapsedMs: sentAt !== null ? Math.max(0, Date.now() - sentAt) : null,
       pings,
       pongs,
@@ -213,14 +216,14 @@ export function codexWsExchange(options: ExchangeOptions): Promise<Response> {
       resolve(response);
     };
 
-    const failStream = (error: unknown, status: 502 | 504 = 502) => {
+    const failStream = (error: unknown, status: 502 | 504 = 502, { socketDied = false } = {}) => {
       if (terminal) return;
       terminal = true;
       if (sent && !responseCommitted && metadata) {
         // Nothing has been promised to the client yet, so the honest answer is a gateway
         // status, not a 200 whose body then fails. The frame may already be executing
-        // upstream: the response is marked non-replayable so no layer of this process sends
-        // it again, and the client applies its own retry policy as it would on the direct
+        // upstream: the response is marked non-replayable so no retry layer of this process
+        // sends it again, and the client applies its own retry policy as it would on the direct
         // path. Same settle order as a refused create: snapshot, detach, close, dispose.
         const prelude = metadata.snapshot();
         // Claim the commit slot so no later path can resolve a second, 200 Response.
@@ -230,7 +233,13 @@ export function codexWsExchange(options: ExchangeOptions): Promise<Response> {
         session.dispose();
         const message = error instanceof Error ? error.message : String(error);
         const failureResponse = codexWsPreResponseFailure(status, message, prelude);
-        markCodexWsStage(failureResponse, stageRecord(Buffer.byteLength(frameText, "utf8")));
+        const stage = failureStage();
+        markCodexWsStage(failureResponse, stageRecord(stage.requestBytes));
+        // #4191: a socket that died under the send is the one settle the dispatch may replace,
+        // once, and only under the operator's `retryOnReset` grant. Native steering and injection
+        // are left out: their channel may already have sent continuation frames on this socket, so
+        // the create frame alone no longer describes the turn.
+        if (socketDied && !nativeControl) markCodexWsSocketDeath(failureResponse, stage);
         resolve(failureResponse);
         return;
       }
@@ -475,6 +484,7 @@ export function codexWsExchange(options: ExchangeOptions): Promise<Response> {
       if (!controlFrame && !type.startsWith("response.") && type !== "error") return;
       let steeringEnded = false;
       if (!controlFrame) {
+        firstResponseAt ??= Date.now();
         try {
           if (nativeControl) steeringEnded = nativeControl.observe(normalized.payload);
           else correlation?.accept(normalized.payload);
@@ -549,7 +559,9 @@ export function codexWsExchange(options: ExchangeOptions): Promise<Response> {
         resolve(sseFallback(url, init));
         return;
       }
-      if (sent && !terminal) failStream(closedBeforeTerminalMessage(event, failureStage()));
+      if (sent && !terminal) {
+        failStream(closedBeforeTerminalMessage(event, failureStage()), 502, { socketDied: true });
+      }
     };
 
     const onError = () => {
@@ -560,7 +572,10 @@ export function codexWsExchange(options: ExchangeOptions): Promise<Response> {
         cleanup();
         session.dispose();
         resolve(sseFallback(url, init));
-      } else failStream(`codex websocket transport error${codexWsFailureDetail(failureStage())}`);
+      } else {
+        const message = `codex websocket transport error${codexWsFailureDetail(failureStage())}`;
+        failStream(message, 502, { socketDied: true });
+      }
     };
     detachOwner = session.bindOwner(reason => cancelExchange(reason));
     ws.addEventListener("open", onOpen);

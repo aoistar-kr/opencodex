@@ -21,11 +21,13 @@ import {
   writePid,
   writeRuntimePort,
 } from "../../src/config/process-state";
+import { markSiblingStart, resetSiblingStartForTests, siblingRuntimeField } from "../../src/codex/sibling-start";
 import { setTrustedWindowsSystemDirectoryResolverForTests } from "../../src/lib/windows-elevation";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
 import { repoPath } from "../helpers/repo-root";
 
 let testDir = "";
+const previousHome = process.env.OPENCODEX_HOME;
 
 beforeEach(() => {
   testDir = mkdtempSync(join(tmpdir(), "ocx-process-state-"));
@@ -38,7 +40,8 @@ afterEach(() => {
   setProcessCommandLinePlatformForTests(null);
   setTrustedWindowsSystemDirectoryResolverForTests(null);
   setOcxStartProcessCacheForTests([]);
-  delete process.env.OPENCODEX_HOME;
+  if (previousHome === undefined) delete process.env.OPENCODEX_HOME;
+  else process.env.OPENCODEX_HOME = previousHome;
   if (testDir && existsSync(testDir)) removeTreeWithRetry(testDir);
   testDir = "";
 });
@@ -259,5 +262,27 @@ describe("proxy process-state ownership", () => {
       "utf-8",
     );
     expect(readRuntimePort()).toBeNull();
+  });
+
+  test("a sibling record carries the live owner's port; every other record keeps its bytes", () => {
+    // Absent means "not a sibling", and the writer must not add the key: a non-sibling record is
+    // byte-identical to the one written before the field existed.
+    writeRuntimePort({ pid: 1234, port: 58195, hostname: "127.0.0.1", ...siblingRuntimeField() });
+    expect(readFileSync(getRuntimePortPath(), "utf-8"))
+      .toBe(`${JSON.stringify({ pid: 1234, port: 58195, hostname: "127.0.0.1" }, null, 2)}\n`);
+    expect(readRuntimePort()?.siblingOfPort).toBeUndefined();
+
+    markSiblingStart(10100);
+    try {
+      writeRuntimePort({ pid: 1234, port: 10199, hostname: "127.0.0.1", ...siblingRuntimeField() });
+    } finally {
+      resetSiblingStartForTests();
+    }
+    expect(readRuntimePort()).toEqual({ pid: 1234, port: 10199, hostname: "127.0.0.1", siblingOfPort: 10100 });
+
+    for (const siblingOfPort of [0, 70000, 1.5, "10100", null]) {
+      writeFileSync(getRuntimePortPath(), JSON.stringify({ pid: 1234, port: 10199, siblingOfPort }), "utf-8");
+      expect(readRuntimePort()).toBeNull();
+    }
   });
 });

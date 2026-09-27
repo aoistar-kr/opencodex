@@ -28,6 +28,13 @@ Generated catalogs include only enabled models from each provider selection. Thi
 downloads and managed integrations, including Pi and Aside. The management model list still shows
 the full roster so you can enable additional models.
 
+`ocx uninstall` disables recorded integrations, including all owned Aside profiles, before deleting
+OpenCodex's recovery state. Unreadable ownership, missing profile registration or a conflicting edit
+stops that deletion. Cleanup is sequential: earlier successful disables are not undone when a later
+one fails. If compensation also fails, a client file may be left in an intermediate state. Inspect
+the reported client files and retained recovery snapshots before retrying; retained state does not
+mean every client was restored or left unchanged.
+
 For Gajae built-in presets, keep the routing choice in `~/.gjc/agent/config.yml`:
 
 ```yaml
@@ -37,6 +44,8 @@ modelProfile:
 ```
 
 Keep your chosen `modelProfile.default` to apply it when plain `gjc` starts. The managed integration owns only `providers.opencodex` in `models.yml`; refreshing or disabling that provider does not rewrite your preset choice. Refresh the integration after changing the exported model selection.
+
+GJC models with a supported reasoning-effort ladder export `reasoning: true`, `thinking.levels`, and `compat.supportsReasoningEffort`, so GJC can offer an effort choice. Native Codex models receive their standard ladder even when the catalog omits it. Models without a known ladder omit these fields; `none` and `ultra` are not offered because `none` sends no effort and `ultra` folds to `max` on the wire. Refresh the integration to update these model options.
 
 The managed OpenCode integration owns two fragments: `provider.opencodex` (opencode V1) and
 `providers.opencodex` (opencode V2). Only the V2 block carries the per-model reasoning-effort
@@ -199,6 +208,28 @@ dialog names the file, says what is lost, and points at the snapshot that makes 
 undoable. The switch itself stays locked, because the switch cannot know which edits
 you meant to keep — only you can say so. Nothing else is relaxed: a file we cannot
 parse, or one whose structure we cannot reason about, still refuses.
+
+## Hermes session affinity
+
+The generated `providers.opencodex` block includes `session_affinity_header: session-id` for all
+models. This names a header; Hermes supplies its dynamic conversation identifier. OpenCodex does
+not write a shared static identifier or change `api_mode` to enable affinity.
+
+Use a Hermes version supporting [per-provider request options](https://hermes-agent.nousresearch.com/docs/user-guide/configuring-models#per-provider-request-options).
+Older versions may ignore or discard the option; a valid configuration alone does not prove that
+Hermes sends the header. Conversation isolation, compaction lineage and auxiliary/child requests
+follow Hermes' affinity semantics. This setting does not guarantee a particular cache-hit rate.
+
+For an existing managed integration, open **Integrations → Hermes**, review **Apply**, and confirm
+the update. Until then, it shows **Update needed** and implicit catalog refresh leaves it unchanged,
+including its model list. Reading the page does not upgrade the configuration. After Apply, normal
+catalog refresh resumes and retains the setting; **Replace** also includes it.
+
+If you already added exactly `session_affinity_header: session-id` inside the managed block, Apply
+can adopt it when all other managed settings still match the ownership record. This is the narrow
+exception to the conflict rule above: other edits, a different header name, or a block without a
+matching ownership record still require conflict resolution. Unrelated YAML settings and comments
+remain untouched, and the existing snapshot and Restore workflow applies to the upgrade.
 
 ## Preview and confirm changes
 

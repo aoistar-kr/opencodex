@@ -1,5 +1,26 @@
 # Responses Failover And Replay
 
+`src/server/responses/compaction-recovery-policy.ts` is a pure eligibility policy, not a dispatcher.
+It requires explicit configuration and normalized attempt evidence, preserves ordinary requests,
+and refuses cancellation, committed semantic output, tool effects, protected failures, exhausted
+send budgets and repeated recovery. Its Devin `invalid_argument` exception is separately opted in;
+an opaque HTTP 400 alone never grants replay. The caller owns canonical target resolution, output
+validation and shared-budget reservation. `compaction-recovery.ts` connects this policy to
+self-contained routed v1/v2 compaction in `core.ts` and `compact.ts`; normal and successful
+requests keep their original route. One configured emergency target shares the original send
+and translation budgets. Physical-send receipts and explicit retry-helper reports reconcile legacy
+fetch sends without double charging external reservations; one prepaid emergency permit is shared
+with adapter dispatch, and only additional retries draw from the remainder. Adapter observers retain partial-output and structured denial evidence
+before response projection. Native encrypted compaction, uploaded files, stored continuations,
+and policy/combo routes are excluded. Emergency output must contain one readable portable
+compaction item; recent original user messages are retained verbatim, and recovery failure keeps
+the original failure. A source Kiro account lease is returned before the emergency child is
+admitted: the child shares its holder and may select the same account, so replacing that holder
+without returning the source lease would block cap-one fallback and leak capacity at higher caps.
+`tests/responses/responses-compaction-recovery-policy.test.ts`,
+`tests/responses/responses-compaction-recovery.test.ts` and
+`tests/providers/kiro/kiro-leased-responses.test.ts` pin these boundaries.
+
 Retry, replay, and combo failover on the Responses data plane: upstream reset retry, the
 ambiguous-resend gate and replay boundary, combo quota fallback and commit boundaries, compaction
 routing overrides, and output headroom. The endpoint and dispatch rules they build on are in
@@ -41,11 +62,12 @@ abort/sleep helpers from this module.
 
 ## Ambiguous-resend gate
 
-A model POST that fails with the caller having observed nothing is one question asked at two
-points: before any response head, and after a head whose SSE body carried only control events.
-`src/lib/request-resend-gate.ts` is the single answer. It derives stage, cause, permission and
-send class from `src/lib/request-failure-model.ts` and adds exactly one thing the table names
-but does not implement — the narrowly scoped operator override for `refused-ambiguous`.
+A model POST that fails with the caller having observed nothing is one question asked at three
+points. Two are HTTP: before any response head, and after a head whose SSE body carried only
+control events. The third is a Codex WebSocket that closes or errors under its create frame before
+any Responses event (#4191). `src/lib/request-resend-gate.ts` is the single answer. It derives
+stage, cause, permission and send class from `src/lib/request-failure-model.ts` and adds exactly
+one thing the table names but does not implement — the narrowly scoped operator override for `refused-ambiguous`.
 
 The override is bounded on three axes at once. The provider opts in with
 `providers.<name>.retryOnReset`; the request must be one
@@ -72,6 +94,28 @@ output cannot drain the replacement a later ambiguous reset would have been enti
 cause is derived from the `AttemptRecoveryKind` the send will be recorded as, which is what
 keeps the reason in the log and the reason the gate weighed from being two different values.
 
+The WebSocket row is asked once, at the end of the passthrough recovery loop, after every leg has
+let the settled 502 through. The exchange marks only a socket that closed or errored
+(`markCodexWsSocketDeath`) and records the stage it reached: `pre-header` when nothing came back,
+`protocol-prelude` when frames arrived but none was a Responses event. Silence keeps its 504, and a native steering or
+injection exchange is never marked, because its channel may already have sent continuation frames
+on that socket. The send budget is asked before the gate, so a replacement the request cannot fund
+leaves the grant unspent. The replacement is one HTTP send, never a second socket, and its answer
+is sorted exactly like the pre-header row's (see
+[ambiguous connection-reset replay boundary](#ambiguous-connection-reset-replay-boundary)) before
+it goes round the recovery loop again.
+
+The boundary is the first non-control Responses event, not the first visible text delta:
+`response.created`, output/tool events and response usage all close the WebSocket replacement
+window. Quota metadata and ping/pong liveness alone do not. Cancellation and connect/silence
+deadlines never acquire the socket-death marker, even if a late close follows them.
+`tests/responses/ws-ambiguous-resend.test.ts` covers these boundaries through the exchange and
+the existing HTTP-only dispatch, including request-field preservation and terminal fallback
+answers. The replacement uses the shared credential-selection guard and physical-send ledger;
+there is no transport-local retry budget or credential snapshot with independent authority.
+
+> Decision record: [ADR-4191](../decisions/ADR-4191-established-websocket-fallback.md)
+
 ## Console upload rejection recovery
 
 `src/providers/opencode-zen-rate-limit.ts` recognizes the complete Console upload-rejection envelope only at the effective HTTPS opencode.ai Zen/Go generation endpoint. A provider row name cannot authorize another destination. The two recovery loops in `src/server/responses/core.ts` wait 800 ms and replay the captured serialized request once; cancellation, nonreplayable responses, other errors and a second upload rejection keep their failure semantics. The recovery kind is persisted as `console-go-upload-retry` and has a localized Logs label.
@@ -87,6 +131,13 @@ This exception is request-scoped and is not applied to direct requests, round-ro
 combo whose remaining eligible targets use other providers.
 
 > Decision record: [ADR-0070](../decisions/ADR-0070-same-provider-combo-quota-fallback.md)
+
+## Single-target cooldown retry ownership
+
+`src/combos/failover.ts` reports whether the current failure actually records a cooldown.
+`src/combos/resolve.ts` forwards that result for each target; `src/server/responses/core-combo.ts`
+permits its bounded same-target retry only when this failure records the failed target and its
+cooldown is live. A stale-generation refusal cannot borrow a sibling request's shared entry.
 
 ## Combo per-target reasoning controls
 
@@ -143,6 +194,17 @@ relay identity markers are restored on the wrapped response so Windows/Bun strea
 logging retain their existing owners. A failed child keeps its physical attempt receipt and usage,
 while the successful child remains the logical request result.
 
+A `runTurn` adapter has the equivalent boundary in `preflightAdapterEvents`
+(`src/adapters/run-turn-queue.ts`), streaming and non-streaming alike: when its first meaningful
+event is a tool call the current request did not declare, and no earlier replay-unsafe heartbeat
+recorded a side effect, `src/server/responses/run-turn-execution.ts` projects the fail-closed
+undeclared-tool refusal as a pre-commit 502 so the combo can hop with the unchanged catalog. After
+any output or a replay-unsafe heartbeat the refusal stays with that child. Chat Completions and
+Anthropic Messages inbound requests do not use this classification.
+The same heartbeat also decides an ordinary pre-output adapter error or an empty end: after a
+replay-unsafe heartbeat the child's 502 is marked non-replayable, so the combo stops on it instead
+of sending the turn to the next target.
+
 HTTP 410 remains terminal by default. It advances and cools only the exact combo target when the
 structured code or message explicitly identifies a model lifecycle event (end-of-life, retired,
 deprecated, sunset, decommissioned, or no longer available). An unrelated application-level 410 is
@@ -162,6 +224,28 @@ The management quota DTO keeps Combo editing aligned with scoped inference evide
 
 Lite and routing metadata use the same suffix-normalized model object as serialization, including configured bracket-suffix removal.
 
+## Grok Devin pre-output rate limits
+
+For direct Grok Responses requests served by the Devin runTurn adapter,
+`src/server/responses/run-turn-execution.ts` uses `preflightAdapterEvents` before creating the
+streaming Response. A first-event 429 without a replay-unsafe heartbeat becomes an HTTP 429 JSON
+error through the shared error formatter and client Retry-After resolver. The buffered first event
+is replayed for every other outcome. The preflight is bounded by the configured stall timeout,
+including any earlier OAuth failover preflight on this path. On expiry, its pending iterator read is
+handed to SSE replay exactly once; timeout therefore starts a 200 SSE response. An opted-in Devin
+cooldown heartbeat also starts SSE before its wait ends. Once SSE begins, the stream forwards safe
+heartbeats and checks the first meaningful event: a pre-output 429 may rotate to an eligible OAuth
+account and replay the unchanged request. Without an eligible account it remains an in-stream
+failure, since HTTP status is already committed. Text, reasoning, and tool output commit the stream
+and prevent later rotation. Buffered Responses turns ignore the cooldown-ready heartbeat during
+preflight and apply the same HTTP 429 formatter to a final refusal after OAuth failover. Other
+buffered results retain the original event list, including output preceding a late error. Combo
+children ignore cooldown readiness during their own preflight, so a final 429 without output can
+still move to the next combo target. Devin combo children bypass opted-in stated-reset waiting and
+surface the pre-output 429 immediately, because the outer response cannot forward their wait
+heartbeats while it is choosing a target. An earlier replay-unsafe heartbeat or meaningful output keeps
+the failure on the current target.
+
 ## Optional client transport hints
 
 `dropCodexSafetyBuffering` defaults to false. Canonical OpenAI forward Responses can remove only
@@ -175,6 +259,15 @@ Claude replay carries [Go conversation affinity](../data-planes/inbound-compat.m
 Native Chat applies qualifying effort ceilings independently of model pins; pin selection precedes the cap and only pins or cap rewrites enter wire mapping. The [catalog effort contract](../catalog.md#ultra-reasoning-level) records the V1/compaction exemptions and caller-preservation boundary.
 
 Pool quota producers and account commands follow the [bounded raw-observation contract](../providers/openai-accounts.md#bounded-pool-quota-observations), separate from the latest display snapshot and capacity estimates; account quota surfaces use [safe probe diagnostics](inventory.md#account-quota-failure-diagnostics) separately from quota validity, credential health and routing authority. Raw-byte readers on this path supply their own byte and deadline budgets under the [bounded ingestion contract](inventory.md#bounded-response-ingestion-and-orcarouter-login).
+
+Translated Chat requests preserve caller reasoning intent until a combo or policy selects a
+concrete target. Empty-ladder stripping and effort mapping apply to each attempt copy, never the
+shared ingress body, so a later capable fallback still receives the caller's requested effort.
+`src/server/responses/core-normalize.ts` strips an empty ladder from both parsed adapter options
+and raw reasoning on each translated Chat attempt, preserving summary controls. Policy fallback
+captures the original body before this normalization, including for its first candidate.
+
+> Decision record: [ADR-0110](../decisions/ADR-0110-chat-reasoning-failover-intent.md)
 
 Live sideband admission and its bounded upstream handshake follow the [runtime contract](../runtime.md#live-sideband-handshake); the ordinary Responses WebSocket exchange remains separate.
 
@@ -250,7 +343,8 @@ this same refusal. Nothing on that path hands the client a status that invites t
 to be sent again. See [ambiguous-resend gate](#ambiguous-resend-gate).
 
 That includes what the replacement send itself answers. Once the grant is spent, the first send
-may already have run the turn, so `fetchWithResetRetry` sorts the replacement's answer:
+may already have run the turn, so `settleOperatorReplacement` sorts the replacement's answer, for
+the pre-header row in `fetchWithResetRetry` and the WebSocket row alike:
 
 | Replacement answer | Result |
 | --- | --- |
@@ -270,12 +364,28 @@ response, so `consumeComboFailure` records `nonReplayable` and the combo stops r
 on, say, a context overflow. The cost is that a real 401, 402 or 429 on a replacement send is not
 recorded against its credential on that request.
 
+A 2xx replacement carries no marker, and its stream can still fail before any output. A marker
+cannot carry that case, because the combo preflight rebuilds the failure as a fresh Response, so
+the request execution budget's `ambiguousResendSpent` is what stops the combo, for all three
+replacement rows (pre-header, SSE and WebSocket): a status the client would resend becomes the
+refusal, and anything else keeps its status and the non-replayable marker. The direct path skips
+the streamed opaque-blob rebuild and settles the preflight's projected failure by the same rule.
+Policy fallback does not hop on a marked answer.
+A scope derived from a budget this factory did not build (the shape-tested bridge in
+`src/lib/request-execution-budget.ts`) remembers a grant it claimed through the bridge, keyed by
+the bridged parent, so every sibling scope reports it spent even when that parent predates the
+`ambiguousResendSpent` flag.
+
 **An upstream reset observed mid-stream or after a terminal keeps its existing behaviour.**
 The passthrough read path still settles a genuine upstream reset as a synthetic 502, and the
 Codex WebSocket transport still settles `upstream_closed_before_response` (socket closed
 after the create frame) and `upstream_no_response` (origin never produced an event) as 502
-and 504. Those describe something the upstream did after our send, they are the contract the
-public server reference already documents, and this release does not move them.
+and 504. Those describe something the upstream did after our send, and they are the contract
+the public server reference already documents. The 504 and a drop after the response started
+are never replaced. Only the 502 of a socket that closed or errored before any Responses event
+may be replaced over HTTP, when the provider opted into `retryOnReset` (#4191). That replacement
+claims from the request's one allowance; if it resets before its head, that is the pre-header row
+again and may use a configured second replacement, otherwise it settles as the refusal.
 
 This reclassification is the recorded behaviour change: before it, the pre-header refusal
 borrowed `upstream_closed_before_response` and its 502, which multiplied the duplicate send
@@ -350,6 +460,8 @@ that shows the same client resending.
 
 The existing provider HTTP-status policy and the shared physical-send budget remain
 independent: zero refuses dispatch, invalid counts fail, and a stopped send is counted once.
+A denied first combo target returns a local typed 429 `request_send_budget_exhausted` without
+dispatch; a denied later hop returns the last real upstream failure without contacting that target.
 `src/bridge/errors.ts` retains only the allowlisted non-replayable transport codes,
 reapplies the in-process marker, attaches no `Retry-After`, and restates 429 for the refusal
 code alone so a combo or adapter formatter holding an upstream-shaped 502 cannot hand the
@@ -373,6 +485,8 @@ output actually share. When the caller declared `max_output_tokens`,
 `checkComboTargetInputAdmission` requires both `estimated input <= ceiling` and
 `estimated input + min(declared output, target output ceiling) <= window`, so the output reserve
 is counted once rather than charged twice against an already-tightened input budget.
+Both direct and combo estimates omit replayed assistant thinking for `openai-chat` models outside
+`preserveReasoningContentModels`, matching the adapter's wire omission; other targets still count it.
 
 The refusal is local: HTTP 413 `input_admission_refused` before any upstream bytes are sent, which
 existing combo policy already treats as a safe hop. That ordering is the whole point. A target whose
@@ -400,10 +514,22 @@ Dashboard Fast-row persistence and client refresh follow the [Fast selector rows
 
 ## Account refusal and rotation boundaries
 
-Native Responses uses the existing pre-stream OAuth HTTP-429 account rotation: account quorum,
-cooldown and the three-rotation request cap remain in force, the complete credential/transport/replay
-identity is refreshed, and usage is attributed to the serving account. Single-account installs do not
-retry; a missing alternate credential preserves the original error. Organization or project exhaustion
+Native Responses uses the existing pre-stream OAuth HTTP-429 account rotation: account quorum and
+cooldown remain in force, while generic OAuth uses the stable snapshot ceiling described below. The
+complete credential/transport/replay identity is refreshed, and usage is attributed to the serving
+account. Single-account installs do not rotate; a missing alternate credential preserves the original
+error while transient recovery remains available.
+
+Kiro adapter additionally classifies bounded HTTP 400/403/429 refusals before output.
+Confirmed monthly exhaustion is persisted for the sent login, suspension is quarantined
+in process, and an eligible alternate is admitted under the shared rotation and physical
+send budget. The original response remains readable if alternate admission fails. A
+terminal OAuth refresh rejection can use an eligible alternate only after the original
+generation is marked for reauthentication. Final Kiro 5xx errors have fixed public text.
+The Kiro replacement reserves a no-wait account lease before committing OAuth selection;
+a full replacement leaves the original refusal in place. A successful rotation transfers
+the request's lease before the replacement send, and the final response body releases it.
+Organization or project exhaustion
 allows an initial alternate attempt because the response does not identify the refusing scope. After
 resolving an alternate, organization-level retry is withheld only when both credentials have the same
 known workspace account id. Stored Pool/main-pool alternates supply that id directly; a request-owned
@@ -418,6 +544,12 @@ credential has been resolved.
 Send-budget refusal is attributed as a withheld rotation only when a model-family-aware eligibility
 check confirms from the live roster that at least two accounts exist and an alternate is not currently
 cooled. That check applies no cooldown and advances no rotation.
+
+Generic OAuth snapshots its eligible roster before dispatch. Its request rotation ceiling is
+`max(3, min(eligibleCount, GENERIC_OAUTH_MAX_ACCOUNTS_PER_REQUEST) - 1)` (the cap is six); the live picker still filters cooldowns, so the snapshot supplies the
+stable ceiling without making a cooled account eligible. Same-provider auth recovery keeps the last
+physical target, rather than a diagnostic key, and a real send is charged once even when recovery
+rebuilds the request.
 
 Precommit Codex model refusals use bounded account recovery for HTTP `detail` and WebSocket-projected
 `error.message` bodies. Only an exact HTTP 400 refusal naming the requested or wire model establishes

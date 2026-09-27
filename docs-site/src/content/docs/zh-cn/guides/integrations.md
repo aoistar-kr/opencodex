@@ -35,6 +35,8 @@ modelProfile:
 
 保留所选的 `modelProfile.default`，使普通 `gjc` 启动时应用它。托管集成只管理 `models.yml` 中的 `providers.opencodex`；刷新或禁用该提供商不会改写预设选择。更改导出的模型选择后，请刷新集成。
 
+具有受支持推理强度梯度的 GJC 模型会导出 `reasoning: true`、`thinking.levels` 和 `compat.supportsReasoningEffort`，让 GJC 提供强度选择。原生 Codex 模型即使未在目录中列出梯度，也会获得标准梯度。没有已知梯度的模型会省略这些字段；`none` 不发送强度，而 `ultra` 在传输时折叠为 `max`，因此不会列为选项。刷新集成即可更新模型选项。
+
 托管 OpenCode 集成管理两个片段：`provider.opencodex`（opencode V1）和 `providers.opencodex`（opencode V2）。只有 V2 配置块包含各模型的推理强度变体，因此两者都会写入并保持同步；它们使用相同的提供商与模型 id，opencode V2 会将它们合并为一个提供商条目。Apply、Refresh、Disable 和 Restore 都作用于两个片段；其他提供商、代理、快捷键与 MCP 条目保持不变。
 
 托管 DSH 支持的最低兼容版本为 **DSH 0.1.0-rc.6**。OpenCodex 只管理 `llm-pi-ai.providers.opencodex`；Apply 和 Refresh 替换该片段，Disable 只移除该片段，Restore 恢复已记录的快照。DSH 会热重载提供商变更。这些操作不会改变用户的默认模型或原生 `deepseek-official` 提供商。托管 DSH 集成目前仅支持回环地址，绝不会写入真实凭据。
@@ -84,6 +86,8 @@ opencodex 从自己的环境读取这些变量。如果网关使用配置文件�
 Disable 只移除 opencodex 记录为自己管理的条目。如果文件在写入后发生变化，结果取决于我们的条目是否仍完整以及文件格式。对于严格 JSON 配置（OpenCode、Pi），在配置块**旁边**编辑，例如添加 MCP 服务器或自己的提供商，会显示 **Update needed**：刷新时会绕过并保留这些条目，但格式可能被规范化。有些 JSON 内容无法精确保留：如 `1e999` 这样的非有限数值、重写时会舍入的数字（超大整数或会变成零的极小数字）、`-0`、同一对象中的重复键，或超过 1000 层的嵌套。遇到这些内容时，开关会锁定，以免静默更改或丢弃数据。**OMP、DSH 和 Hermes** 也不受相邻编辑影响，但原因不同：其写入器只按字节修补自身管理的提供商片段，不重写文件其余部分。对于其他可能带注释的格式（OpenClaw、Kimi Code、gjc、MiniMax Code、Raycast——整份写入的 JSON5 和 TOML，或不保留源码的通用 YAML），以及我们管理的条目被编辑时，开关会锁定，Disable 会拒绝执行，而不是猜测哪些编辑来自你。
 
 锁定状态并非无解。有冲突的客户端会在概览卡片和自身页面的开关旁显示 **Replace**。它会将占据我们设置位置的内容替换为 opencodex 将写入的配置块，并事先询问：对话框会显示文件名、说明会丢失什么，并指向可用于撤销的快照。开关本身仍锁定，因为它无法知道你希望保留哪些编辑；只有你能决定。其他限制没有放宽：无法解析或无法可靠理解结构的文件仍会拒绝处理。
+
+Hermes 的会话标识升级是上述冲突规则的特例：已有受管配置仅新增 `session_affinity_header: session-id` 时，可通过 **Apply** 接纳；其他受管字段的修改仍会冲突。升级前，后台刷新会同时暂停该集成的模型列表更新。此设置适用于该 provider 的所有模型，需要支持该能力的 Hermes 版本，且不保证缓存命中率。详见[英文升级说明](/guides/integrations/#hermes-session-affinity)。
 
 ## 预览并确认变更
 

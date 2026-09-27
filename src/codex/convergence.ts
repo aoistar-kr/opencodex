@@ -62,7 +62,6 @@ import {
   shouldIncludeAccountBoundNativeOpenAi,
   shouldIncludeNativeOpenAi,
 } from "./catalog/metadata";
-import { applyObservedNativeAccessPrograms } from "./catalog/access-programs";
 import {
   trustedAccountBoundNativeCatalogSlug,
   visibleCodexAccountSelectors,
@@ -75,6 +74,7 @@ import { suppressedSyntheticMaxCatalogSlugs } from "./catalog/model-hints";
 import { codexRuntimeStatePath, peekCodexRuntimeProcessCache } from "./runtime";
 import { codexAccountNamespaceEntries, isMainCodexAccountTarget } from "./account-namespaces";
 import { MAIN_CODEX_ACCOUNT_ID } from "./main-account";
+import { applyNativeAccessPrograms } from "./catalog/access-programs";
 import {
   availableAccountGatedNativeModels,
   codexModelEntitlementStateForAccount,
@@ -390,10 +390,7 @@ function prepareCatalog(
       warningPolicy: "suppress",
     },
   });
-  applyObservedNativeAccessPrograms(mergedModels, modelEntitlements, {
-    bareEligibleAccountIds,
-    accountIdBySelector,
-  });
+  applyNativeAccessPrograms(mergedModels, modelEntitlements, accountTargets);
   clampCatalogModelsToObservedCodexSupport(
     mergedModels,
     source.runtimeSupport.kind === "available"

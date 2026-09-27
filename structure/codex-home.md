@@ -1,5 +1,7 @@
 # Codex Home
 
+Quota activation restores deadlines from OpenCodex settings; its retry backoff remains process-local. See the [quota activation contract](providers/openai-tiers.md#public-provider-contract).
+
 Catalog HTTP acquisition follows the [proxy-routing contract](catalog.md#remote-catalog-http-proxy-routing).
 
 A lock in the Codex credential store is governed by [descriptor identity and age](catalog.md#accounts-namespaces-and-pool-rotation), so the mere presence of its filename is neither acquisition nor release authority. Failed path-identity probes leave the lock for stale recovery and preserve the refresh callback outcome. Cooperating lock metadata changes serialize through the existing SQLite mutation transaction; release keeps the descriptor open through identity comparison and any unlink, then closes it. Failed metadata writes remove only a matching owned path after successful coordination; unknown identity, failed probes or unavailable coordination retain the path for stale recovery. Async refresh work holds no metadata transaction.
@@ -32,9 +34,16 @@ issuing deferred inference warmups. Already dispatched requests retain their cap
 ## Codex home
 
 `src/codex/paths.ts` resolves Codex state from `CODEX_HOME` when set and valid, otherwise from
-`~/.codex`. An unset `CODEX_HOME` falls back to `~/.codex`, including WSL discovery. An explicitly
+`~/.codex`. An unset `CODEX_HOME` falls back to `~/.codex`, including WSL discovery. On WSL,
+discovery of a Windows Desktop home applies when the Linux `~/.codex` is absent, is not a directory,
+or is a directory holding no Codex state (none of `config.toml`, `auth.json`, `sessions`,
+`history.jsonl`; `defaultCodexHome` in `src/codex/home.ts`). A fresh local home Codex is already using
+stays the home before `config.toml` exists (issue 5441), a bare directory does not move an existing
+user off a Windows home they were running against, and a stat failure other than absence keeps the
+local home rather than switching to a different one. Codex runtime discovery (src/codex/runtime.ts) also reads this home on Linux: after an explicit runtime, PATH, and the ordinary install locations, it enumerates the direct children of <effective CODEX_HOME>/bin/wsl/<version-hash>/codex newest first, probes each through the isolated --version seam, and re-enumerates on every resolve so a Desktop update that replaces the hash directory is picked up (issue 5635). An explicitly
 set path that is unreadable or not a directory is an error, not a fallback: silently using a
-different home than the operator named would write provider state where nobody is looking for it.
+different home than the operator named would write provider state where nobody is looking for it. A fresh install can have that directory but no `config.toml` yet; applying the integration then creates an empty `config.toml` there (never overwriting an existing file) and continues, while a missing home directory is refused with instructions to start Codex once or set `CODEX_HOME` (issue 5422).
+`src/codex/home.ts` imports path expansion directly from `src/config/paths.ts`, so a fresh WSL process can resolve its Codex home without re-entering the config facade before the resolver initializes.
 The managed files are:
 
 ```text
@@ -88,7 +97,12 @@ to the single discoverable Windows Desktop home; recording Linux `~/.codex` inst
 later repair or uninstall look foreign even though the service and runtime were started from the
 same environment. A record written before that discovery still names Linux `~/.codex`; service
 commands refuse it and name the recorded home to rerun with, because stop and repair would otherwise
-restore a different home. An explicit `CODEX_HOME` remains authoritative; nothing migrates implicitly.
+restore a different home. A recorded spelling that still resolves to the same physical directory —
+a junction or symlink alias — counts as the same home for the ownership check, the recorded SQLite
+home, and the unattended ownership preflight. Access or transient I/O errors are unknown rather
+than foreign in preflight; distinct spellings with missing/non-directory paths remain mismatches.
+Lifecycle guards still fail closed on unknown and can throw `ServiceOwnershipError`.
+An explicit `CODEX_HOME` remains authoritative; nothing migrates implicitly.
 
 > Decision record: [ADR-0006](decisions/ADR-0006-codex-home.md)
 
@@ -126,6 +140,82 @@ stage registry and this instance's staging tree are proven absent. This keeps an
 subsystem from fencing native traffic or creating lock contention. Presence, an unsafe entry type,
 or any observation error still takes the locked sweep and fails closed; the fast path is based only
 on proven absence, never on an unreadable path.
+
+Native-main admission is one process-global gate. Releasing the last reference to a startup entry
+returns a snapshot published by that startup generation to the process-initial `ready` state
+synchronously, before the release awaits anything, so a server stopped in the middle of startup
+convergence cannot leave the process fenced for the servers that follow it. A same-home recovery
+fence published independently by a profile transaction survives release. An entry created
+afterwards for the same home arms its own gate, and the retired generation's late convergence
+writes are ignored.
+Recovery-completion provenance is separate from the convergence promise: release retains the owner through the pending recovery and its following stage sweep.
+`tests/codex-integration/native-profile-startup-release.test.ts` pins that ordering.
+
+A sibling instance — `ocx start --port <other>` while a live proxy serves the configured port, the
+`"sibling"` outcome of `decideStartWithLiveOwner` in `src/cli/dispatch.ts` — gets past the spend-ledger
+lease only with its own `OPENCODEX_HOME`, and still shares this Codex home, `~/.claude`, `~/.grok` and
+the launchd domain with the live owner. `handleStart` marks the process through
+`src/codex/sibling-start.ts` before the server binds, and the mark is one-way for the process's
+lifetime. It closes `localClientSyncAllowed` in `src/codex/desired-state.ts` with its own skip reason
+`sibling`, so startup sync, cache invalidation, Grok, the retained catalog writers and the native-main
+lifecycle stand down (the sibling runs the no-op lifecycle, so it never contends for the owner lease;
+its data-plane `auth.json` refresh still runs under the machine-wide exclusive claim). Owner-level
+checks cover what the gate reads backwards or never reaches: both restore entry points and the
+injector return before their external-provider journal cleanup, the management catalog funnel,
+`src/integrations/catalog-refresh.ts`, `connectClient`/`syncConnectedClient`/`disconnectClient`,
+the Claude roster and system env refuse, the exit teardown comes from `decideStartExitTeardown`, and
+`POST /api/stop` answers `sharedTeardown: "not-owned"` without touching the service manager. The guard refuses the native-main
+profile and reauth routes among the others listed in
+[`gui-and-management-api.md`](gui-and-management-api.md#api-ownership). The runtime record carries
+`siblingOfPort`, and `ocx stop` of such a runtime, live or left behind by a hard kill, claims no
+receipt, runs no shared teardown, does not revert the system env and does not ask the service
+manager: a sibling never runs under one, so an installed service is the live owner's. When the
+recorded sibling no longer answers and discovery reaches the owner instead (`siblingStopFoundOwner`),
+the stop leaves that proxy running, clears the stale sibling records and exits 0. A clean sibling
+exit removes that record; a later `ocx stop` refuses a discovered listener unless it proves possession of this home's runtime-record secret through a fresh `/healthz` challenge, so the configured-port fallback cannot stop the owner. The sibling's own drain-and-restart (`src/server/management/system-restart.ts`) and standalone recycle
+(`src/client/runtime.ts`) hand the mark to their replacement through `OCX_SIBLING_OF_PORT` and
+`OCX_SIBLING_HANDOFF_NONCE`, backed by a one-use `src/codex/sibling-handoff.ts` record bound to the
+prior sibling runtime and `OPENCODEX_HOME`. Connected-client recycle issues it before stopping
+the listener or removing that runtime record. `handleStart` consumes the record before any probe;
+a forged port env or replay grants no sibling status. A valid replacement stays a sibling while
+the owner is down, and its journal recovery remains skipped.
+Every other detached `ocx start` (`ocx ensure`, the tray, the `ocx claude`/`opencode`/`minimax`
+auto-start and the updater's restart) starts an ordinary owner and strips an inherited marker
+through `withoutSiblingMarker`.
+
+The startup sync is not the owner's last look at `config.toml`. Once it settles, `handleStart`
+starts `src/codex/routing-healer.ts` in an unmarked owner (never in a sibling or the
+connected-client runtime), and the exit cleanup stops it before any teardown. An unref'd timer
+reads `config.toml` every 10 s; unchanged bytes cost nothing more. `src/codex/routing-drift.ts`
+calls routing foreign only when it is opencodex-owned (the marker line, the journaled value, or the
+`opencodex` provider table), names a loopback endpoint with an explicit port that is neither the
+bound port nor the loopback listener's, and no external `model_provider` is selected, so native,
+user, custom, external, restored, LAN and admission-token routing never is. Every distinct foreign
+hostname and port is probed with `probeEndpointLiveness`: a live opencodex is left alone with one
+log line per endpoint, `unknown`
+never advances the streak, and a heal needs dead on at least two probes spanning 20 s, dead again
+on a final probe, and every gate open (no sibling mark, no recycle or drain, the runtime record
+names this process, Codex ON and not hub-gated, no admission-token routing, a write target this
+process serves, no client connection and no client-owned journal). The heal is
+`injectCodexConfig` with no catalog path, a 1 s lock timeout and a synchronous `beforeClientWrite`
+guard that re-reads `config.toml` under the lock and aborts if any admitted bytes or destination
+endpoint changed. A coordinated
+home re-reads its admission under the lock before that guard runs, so a rewrite between plan and
+lock comes back as a stale-admission refusal instead: any refused or failed write whose
+`config.toml` bytes moved since the proof is the same abort, with no wait and no warning, and the
+next heal needs a fresh streak. A busy lock retries on the next tick. A refusal over the proven
+bytes waits 10 minutes, and that wait ends once routing is no longer foreign. Six attempts, or a
+fourth heal, within an hour pause probing and writing until the oldest one leaves the hour; the
+loop then resumes with a fresh streak and never stops for good. An `unknown` answer is asked again
+every 30 s, not every tick. Each heal prints one warning; a failure line carries only the first
+message line, with home paths masked. Detection, gates and probes read the
+journal only through the read-only accessors, `journalOwner({ readOnly: true })` included, so
+watching never deletes an unreadable journal; only a heal write goes through the injector's
+ordinary journal handling. Threads Codex opened while routing named the dead port keep that address until they are
+reopened. `ocx status` reports the same drift, also while the loop is gated off, through
+`codexRoutingDriftWarning` in `src/cli/status.ts`, which reads the journal the same read-only way.
+It says nothing in a sibling's home, whose routing names the owner beside it, and it promises only
+`ocx sync`, because it cannot see whether a healer runs, is gated, or is paused.
 
 The native main slot also accepts one same-identity device reauth (#3898):
 `/api/codex-auth/main/reauth-device` (start/status/cancel) plus
@@ -219,12 +309,20 @@ stay over it while idle.
 The ceiling bounds what the store can account for, which is every entry in the map plus the
 superseded generations queued for unlink, and deliberately not the directory as a whole. Spill files
 orphaned by a crash are absent from the map, so this accounting can neither see nor price them; they
-remain with the `recoverOrphanedResponseSpills` grace sweep described below, which is the only
-mechanism that reclaims them. A host that crashes repeatedly can therefore hold spill bytes above
+are reclaimed by `recoverOrphanedResponseSpills`, a bounded scan that unlinks owned names past
+`RESPONSE_SPILL_ORPHAN_GRACE_MS` unless the process still references them — referenced means a live
+spill stub, a superseded generation queued for unlink, or a queued or in-flight publication's temp,
+destination, or superseded file. The sweep runs once inside the lazy load and again on each liveness
+tick with the tighter `PERIODIC_SPILL_SWEEP_OPTS` bounds, so orphans created mid-run do not wait for a
+restart. A host that crashes repeatedly can therefore hold spill bytes above
 this ceiling for up to `RESPONSE_SPILL_ORPHAN_GRACE_MS` past each crash. Without that aggregate bound the
 directory was limited only per file (256 MiB) and per entry (1000) — a 250 GiB product — which
 left `RESPONSE_TTL_MS` as the only effective limit and made disk use a function of client
-request rate rather than of anything the process controls.
+request rate rather than of anything the process controls. The durable snapshot that
+re-establishes these references after a restart is budgeted too, and its bounded stub and
+tombstone rows are selected before resident payloads under that budget, so a full resident
+cohort cannot crowd a spill reference out of `responses-state.json` and strand a file the
+store still owns.
 
 > Decision record: [ADR-0013](decisions/ADR-0013-codex-home.md)
 

@@ -8,6 +8,15 @@ routes, and limits delegated work.
 
 ## Agent fields
 
+### Skills catalog refresh
+
+`skills.catalog_refresh` accepts `"per_session"` (the default) or `"per_turn"`
+in opencodex's `config.json`. Session mode reuses the first received skills
+instructions for a conversation, protecting the prompt cache prefix from catalog
+changes between turns. Turn mode forwards the client's current catalog.
+See [Keeping the skills catalog stable](/guides/codex-prompt/#keeping-the-skills-catalog-stable)
+for configuration and snapshot lifetime details.
+
 ### Astra roster upgrade
 
 On the first start after upgrading, existing `subagentModels` lists receive
@@ -235,7 +244,13 @@ explicitly enabled and the final routed task contains an otherwise unreadable Fe
 opencodex uses a raw Responses passthrough request to the fixed
 `https://chatgpt.com/backend-api/codex/responses` endpoint with forward-mode authentication.
 ChatGPT returns the plaintext assignment through a forced function call; opencodex then converts
-only that task item to a standard user message before routed-provider dispatch.
+only that task item to a standard user message before routed-provider dispatch. Direct routed
+recovery, cached history replay, and the unreadable-task detector recognise all four codex-rs
+agent-message types: `NEW_TASK`, `MESSAGE`, `FOLLOWUP_TASK`, and `FINAL_ANSWER`. Combo recovery
+remains limited to spawned-child turns. A `FINAL_ANSWER` envelope may omit its `Task name` line.
+Recovery then has no header address to compare with the item's recipient, so that single cross-check
+does not run; the sender comparison and the cache scope, which still binds the structured recipient,
+are unchanged.
 
 This is not local decryption and does not fix the Codex wire protocol. It depends on undocumented
 ChatGPT backend behavior and may stop working after a backend change. The recovered assignment is
@@ -269,8 +284,11 @@ Admission and retention are deliberately narrow:
 Recovery accepts one consecutive run of up to 32 complete Fernet-shaped encrypted parts, with
 at most 2 MiB of combined ciphertext. Parts retain their order and boundaries in one authenticated
 request. Cache identity includes the sequence; the original input is revalidated before assignment
-replacement. HTTP failures retain the existing bounded diagnostic reason and do not trigger an
-internal retry.
+replacement. HTTP failures retain the existing bounded diagnostic reason. They do not trigger an
+internal retry unless `retries` is set: with a value from 1 to 2, opencodex re-sends the same
+admitted request only on a transient upstream status (500/502/503/504/52x) or a transport
+failure, after a short jittered backoff, and still inside the same credential, deadline, and
+shared flight. Terminal statuses and invalid recovery output never retry.
 
 Split tokens are not reconstructed for recovery. A bounded run whose exact concatenation has
 Fernet structure stays classified as ciphertext through plaintext-slot normalization. If the task
@@ -299,7 +317,8 @@ model output rather than authenticated plaintext.
     "enabled": true,
     "model": "gpt-5.6-sol",
     "timeoutMs": 45000,
-    "cacheEntries": 200
+    "cacheEntries": 200,
+    "retries": 0
   }
 }
 ```
