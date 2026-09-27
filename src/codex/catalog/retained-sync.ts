@@ -12,7 +12,7 @@ import { providerCodexAccountMode } from "../../providers/registry";
 import { COMBO_NAMESPACE } from "../../combos";
 import { codexAccountNamespaceEntries, isMainCodexAccountTarget } from "../account-namespaces";
 import { MAIN_CODEX_ACCOUNT_ID } from "../main-account";
-import { applyNativeAccessPrograms } from "./access-programs";
+import { applyNativeAccessPrograms, applyObservedNativeAccessPrograms } from "./access-programs";
 import {
   availableAccountGatedNativeModels,
   codexModelEntitlementStateForAccount,
@@ -534,6 +534,12 @@ function writeRetainedCatalogSync({
     },
   });
   applyNativeAccessPrograms(catalog.models, modelEntitlements, accountTargets);
+  // Keep upstream's exact account-scoped cleanup, then restore the fork's bare-row projection.
+  // Pool merges authenticated grants; Direct admits only the main account selected above.
+  applyObservedNativeAccessPrograms(catalog.models, modelEntitlements, {
+    bareEligibleAccountIds,
+    accountIdBySelector,
+  });
   clampCatalogModelsToCodexSupport(catalog.models);
   finalizeAutoReviewModelOverride(catalog.models, catalogModelsForMerge, config);
   // Last mutation before serialization; see `enforceCatalogSlugUniqueness` for why the ordering

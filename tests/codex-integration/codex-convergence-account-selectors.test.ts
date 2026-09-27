@@ -489,6 +489,9 @@ test("convergence projects the observed Daybreak row onto its selector and one b
   }, null, 2) + "\n");
 
   modelRostersByChatgptAccount.set("main-chatgpt-account", ["gpt-daybreak-blue-latest"]);
+  modelAccessProgramsByChatgptAccount.set("main-chatgpt-account", new Map([
+    ["gpt-daybreak-blue-latest", { cyber: ["daybreak_blue"] }],
+  ]));
   const catalog = await convergeCatalog(config(true));
   const models = catalog.models ?? [];
   const daybreak = models.find(entry => entry.slug === "desktop/gpt-daybreak-blue-latest");
@@ -511,6 +514,10 @@ test("convergence projects the observed Daybreak row onto its selector and one b
   expect(models.filter(entry => entry.slug === "team/gpt-daybreak-blue-latest")).toHaveLength(0);
   expect(models.filter(entry => entry.slug === "desktop/gpt-daybreak-blue-latest")).toHaveLength(1);
   expect(models.filter(entry => entry.slug === "gpt-daybreak-blue-latest")).toHaveLength(1);
+  expect(models.find(entry => entry.slug === "desktop/gpt-daybreak-blue-latest")?.available_access_programs)
+    .toEqual({ cyber: ["daybreak_blue"] });
+  expect(models.find(entry => entry.slug === "gpt-daybreak-blue-latest")?.available_access_programs)
+    .toEqual({ cyber: ["daybreak_blue"] });
 });
 
 test("Direct convergence does not borrow a Pool-only Daybreak grant for the bare row", async () => {

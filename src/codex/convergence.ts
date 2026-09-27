@@ -74,7 +74,7 @@ import { suppressedSyntheticMaxCatalogSlugs } from "./catalog/model-hints";
 import { codexRuntimeStatePath, peekCodexRuntimeProcessCache } from "./runtime";
 import { codexAccountNamespaceEntries, isMainCodexAccountTarget } from "./account-namespaces";
 import { MAIN_CODEX_ACCOUNT_ID } from "./main-account";
-import { applyNativeAccessPrograms } from "./catalog/access-programs";
+import { applyNativeAccessPrograms, applyObservedNativeAccessPrograms } from "./catalog/access-programs";
 import {
   availableAccountGatedNativeModels,
   codexModelEntitlementStateForAccount,
@@ -391,6 +391,13 @@ function prepareCatalog(
     },
   });
   applyNativeAccessPrograms(mergedModels, modelEntitlements, accountTargets);
+  // The upstream projection above owns stale/null cleanup and exact account rows. The fork's
+  // second pass is still required for the bare picker row: Pool intentionally exposes the union
+  // of authenticated Daybreak access programs, while Direct is restricted to the main account.
+  applyObservedNativeAccessPrograms(mergedModels, modelEntitlements, {
+    bareEligibleAccountIds,
+    accountIdBySelector,
+  });
   clampCatalogModelsToObservedCodexSupport(
     mergedModels,
     source.runtimeSupport.kind === "available"

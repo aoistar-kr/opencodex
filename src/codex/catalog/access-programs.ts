@@ -22,6 +22,13 @@ export function applyObservedNativeAccessPrograms(
   options: NativeAccessProgramProjection = {},
 ): void {
   for (const entry of entries) {
+    // This pass can run after the stricter account projection. Do not reattach native account
+    // metadata to a routed combo, and leave an exact native alias to its owning projection.
+    if (isNativeAliasCatalogEntry(entry)) continue;
+    if (entry.owned_by === COMBO_NAMESPACE) {
+      delete entry.available_access_programs;
+      continue;
+    }
     const catalogSlug = typeof entry.slug === "string" ? entry.slug : "";
     if (!catalogSlug) continue;
     const nativeSlug = trustedAccountBoundNativeCatalogSlug(entry);
