@@ -378,7 +378,7 @@
     "claude-picker-recovery.test.ts": "claude-integration",
     "claude-picker-runtime.test.ts": "claude-integration",
     "claude-picker-startup.test.ts": "claude-integration",
-    "claude-picker-trust.test.ts": "claude-integration",
+    "claude-picker-trust.test.ts": "claude-integration", "claude-picker-windows.test.ts": "claude-integration", "claude-picker-trust-windows.test.ts": "claude-integration",
     "claude-desktop-remote-hub.test.ts": "claude-integration",
     "claude-dotenv-provenance-transport.test.ts": "claude-integration",
     "claude-estimate-projection.test.ts": "claude-integration",
