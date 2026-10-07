@@ -69,7 +69,7 @@ export function sanitizeWindowsPowerShellEnv(env: NodeJS.ProcessEnv = process.en
 
 /**
  * Production runner: trusted System32 powershell.exe, hidden window, sanitized
- * module path, bounded runtime. A timeout kills the child and reports code null
+ * module path, bounded runtime. Timeout and output-read errors kill the child and report code null
  * so callers map it to unknown/declined instead of hanging periodic status.
  */
 export const defaultWindowsPowerShellRunner: WindowsTrustRunner = async (args, options) => {
@@ -99,12 +99,12 @@ export const defaultWindowsPowerShellRunner: WindowsTrustRunner = async (args, o
       ]);
       return { out, err, code };
     })();
-    const settled = await new Promise<{ out: string; err: string; code: number } | null>(resolve => {
+    const settled = await new Promise<{ out: string; err: string; code: number } | null>((resolve, reject) => {
       timer = setTimeout(() => {
         try { child?.kill(); } catch { /* already gone */ }
         resolve(null);
       }, timeoutMs);
-      pending.then(resolve, () => resolve(null));
+      pending.then(resolve, reject);
     });
     if (timer !== undefined) clearTimeout(timer);
     if (settled === null) {

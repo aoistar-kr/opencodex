@@ -239,7 +239,7 @@ activation, which uses the same persistent authority path.
 On macOS trust is added without a policy string: Chromium
 skips host-scoped trust settings, so `inspectPickerTrust` treats a current CA whose exported user
 trust settings carry `kSecTrustSettingsPolicyString` as untrusted and an explicit trust step replaces it; an
-export it cannot read makes trust `unknown`, which never arms. On Windows trust is the current-user Root store entry matching the exact fingerprint with a verified leaf. A rotated-out picker certificate is
+export it cannot read makes trust `unknown`, which never arms. On Windows trust is the current-user Root store entry matching the exact fingerprint with a verified leaf. The PowerShell runner terminates its child on timeout or output-read failure and preserves the failure category. A rotated-out picker certificate is
 removed from the login keychain on macOS or the current-user Root store on Windows as its replacement is published, and a failed removal stops the
 picker arming. Publication of `ca.pem` and `ca-owner.json` happens only inside the
 `ca.lock.sqlite` lock (`picker-ca.ts`): lock acquisition is reported separately from the

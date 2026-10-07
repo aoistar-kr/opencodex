@@ -1,7 +1,8 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTrustedWindowsElevationExecutablesForTests } from "../../src/lib/windows-elevation";
 import { createCertificateAuthority } from "../../src/claude/intercept/local-ca";
 import {
   PICKER_CA_COMMON_NAME,
@@ -236,4 +237,80 @@ test("the shared entry point dispatches win32 to the windows adapter", async () 
   const removed = capture(result("OCX_PICKER_TRUST=REMOVED\n", 0));
   expect(await untrustPickerCa(LEAF, SHA1, removed.run, "win32")).toEqual({ ok: true });
   expect(removed.argv[0]!.slice(0, -1)).toEqual([...WINDOWS_TRUST_POWERSHELL_INTERACTIVE_PREFIX]);
+});
+
+const FAKE_TRUSTED_POWERSHELL =
+  "C:\\trusted-system32\\WindowsPowerShell\\v1.0\\powershell.exe";
+
+test("default runner kills the child and surfaces stdout read failures instead of timing out", async () => {
+  setTrustedWindowsElevationExecutablesForTests({ powershell: FAKE_TRUSTED_POWERSHELL });
+  const stdout = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.error(new Error("boom-stdout"));
+    },
+  });
+  const stderr = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.close();
+    },
+  });
+  let resolveExited!: (code: number) => void;
+  const exited = new Promise<number>(resolve => {
+    resolveExited = resolve;
+  });
+  let kills = 0;
+  const spawn = spyOn(Bun, "spawn").mockReturnValue({
+    stdout,
+    stderr,
+    exited,
+    kill() {
+      kills += 1;
+      resolveExited(1);
+    },
+  } as unknown as ReturnType<typeof Bun.spawn>);
+  try {
+    const started = Date.now();
+    const outcome = await defaultWindowsPowerShellRunner([...WINDOWS_TRUST_POWERSHELL_PREFIX, "exit 0"], {
+      timeoutMs: 5_000,
+    });
+    expect(kills).toBe(1);
+    expect(outcome.code).toBeNull();
+    expect(outcome.stderr).toContain("boom-stdout");
+    expect(outcome.stderr).not.toContain("timed out");
+    expect(Date.now() - started).toBeLessThan(5_000);
+  } finally {
+    spawn.mockRestore();
+    setTrustedWindowsElevationExecutablesForTests(null);
+  }
+});
+
+test("default runner kills a hung child and reports a timeout", async () => {
+  setTrustedWindowsElevationExecutablesForTests({ powershell: FAKE_TRUSTED_POWERSHELL });
+  let resolveExited!: (code: number) => void;
+  const exited = new Promise<number>(resolve => {
+    resolveExited = resolve;
+  });
+  const stdout = new ReadableStream<Uint8Array>({});
+  const stderr = new ReadableStream<Uint8Array>({});
+  let kills = 0;
+  const spawn = spyOn(Bun, "spawn").mockReturnValue({
+    stdout,
+    stderr,
+    exited,
+    kill() {
+      kills += 1;
+      resolveExited(1);
+    },
+  } as unknown as ReturnType<typeof Bun.spawn>);
+  try {
+    const outcome = await defaultWindowsPowerShellRunner([...WINDOWS_TRUST_POWERSHELL_PREFIX, "exit 0"], {
+      timeoutMs: 20,
+    });
+    expect(kills).toBe(1);
+    expect(outcome.code).toBeNull();
+    expect(outcome.stderr).toContain("timed out after 20ms");
+  } finally {
+    spawn.mockRestore();
+    setTrustedWindowsElevationExecutablesForTests(null);
+  }
 });
